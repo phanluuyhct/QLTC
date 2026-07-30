@@ -698,7 +698,8 @@ function fillCatFilter(){
   const all=[...(DB.categories.Thu||[]),...(DB.categories.Chi||[])];
   sel.innerHTML='<option value="">Tất cả danh mục</option>'+[...new Set(all)].map(c=>`<option>${c}</option>`).join('');
   const ss=document.getElementById('fSrc');
-  if(ss){ const cur=ss.value; const srcs=[...new Set(DB.transactions.map(t=>t.source).filter(Boolean))].sort();
+  if(ss){ const cur=ss.value;
+    const srcs=[...new Set([...DB.accounts.map(a=>a.name),...DB.transactions.map(t=>t.source).filter(Boolean)])].sort();
     ss.innerHTML='<option value="">Tất cả nguồn</option>'+srcs.map(s=>`<option>${s}</option>`).join(''); ss.value=cur; }
 }
 function currentTxList(){
@@ -751,6 +752,7 @@ window.showTxDetail=id=>{
     <div class="kv"><span>Nhóm</span><b>${gmap[t.grp||'SH']||'—'}</b></div>
     <div class="kv"><span>Danh mục</span><b>${t.category||'—'}</b></div>
     <div class="kv"><span>Nguồn (tài khoản)</span><b>${t.source||'—'}</b></div>
+    ${t.dest?`<div class="kv"><span>Đến tài khoản</span><b>${t.dest}</b></div>`:''}
     <div class="kv"><span>Chủ sở hữu</span><b>${t.owner||'—'}</b></div>
     <div class="kv"><span>Nội dung</span><b style="max-width:60%;text-align:right">${t.note||'—'}</b></div>
     <div class="row" style="margin-top:16px"><button class="btn red" style="flex:1" onclick="delTx('${t.id}');closeModal()">Xóa giao dịch</button></div>`);
@@ -981,10 +983,13 @@ window.addTxModal=()=>{
     <div class="field" style="margin-top:12px"><label>Ngày</label><input id="txDate" type="date" value="${todayISO()}"></div>
     <div class="field"><label>Số tiền (₫)</label><input id="txAmt" type="text" inputmode="numeric" placeholder="0" oninput="fmtInput(this)"></div>
     <div class="field"><label>Danh mục</label><select id="txCat"></select></div>
-    <div class="field"><label>Nguồn chi/thu (tài khoản)</label><select id="txSource" onchange="txSrcChanged()">
+    <div class="field"><label id="txSrcLbl">Nguồn chi/thu (tài khoản)</label><select id="txSource" onchange="txSrcChanged()">
       <option value="">— Không chọn —</option>
       ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
-    <label class="row mini" style="margin:-4px 0 12px;cursor:pointer"><input type="checkbox" id="txAffect" checked style="width:auto">&nbsp;Tự cập nhật số dư tài khoản nguồn</label>
+    <div class="field" id="txDestWrap" style="display:none"><label>Đến tài khoản (nhận tiền)</label><select id="txDest">
+      <option value="">— Chọn —</option>
+      ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
+    <label class="row mini" style="margin:-4px 0 12px;cursor:pointer"><input type="checkbox" id="txAffect" checked style="width:auto">&nbsp;Tự cập nhật số dư tài khoản</label>
     <div class="field"><label>Chủ sở hữu</label><select id="txOwner">
       ${[...new Set(DB.accounts.map(a=>a.owner))].map(o=>`<option>${o}</option>`).join('')}</select></div>
     <div class="field"><label>Nội dung / ghi chú</label><input id="txNote" placeholder="VD: Siêu thị, học phí T9..."></div>
@@ -992,7 +997,10 @@ window.addTxModal=()=>{
   window._txType='Chi'; fillTxCat('Chi');
 };
 window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if([...o.options].some(x=>x.value===a.owner)) o.value=a.owner; } };
-window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); fillTxCat(t); };
+window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); fillTxCat(t);
+  const dw=document.getElementById('txDestWrap'), sl=document.getElementById('txSrcLbl');
+  if(dw&&sl){ if(t==='Chuyển'){ dw.style.display='block'; sl.textContent='Từ tài khoản (nguồn — giảm)'; } else { dw.style.display='none'; sl.textContent='Nguồn chi/thu (tài khoản)'; } }
+};
 function fillTxCat(t){ const sel=document.getElementById('txCat'); const cats= t==='Chuyển'?['Chuyển nguồn']:(DB.categories[t]||[]); sel.innerHTML=cats.map(c=>`<option>${c}</option>`).join(''); }
 window.fmtInput=el=>{ const v=parseNum(el.value); el.value= v? VND.format(v):''; };
 window.saveTx=()=>{
@@ -1002,10 +1010,20 @@ window.saveTx=()=>{
   const srcId=document.getElementById('txSource').value;
   const srcAcc=srcId?DB.accounts.find(a=>a.id===srcId):null;
   const affect=document.getElementById('txAffect').checked;
-  DB.transactions.push({id:uid(),date:document.getElementById('txDate').value,type,
-    category:document.getElementById('txCat').value,amount:amt,owner:document.getElementById('txOwner').value,
-    source:srcAcc?srcAcc.name:'', note:document.getElementById('txNote').value});
-  if(srcAcc&&affect){ if(type==='Chi') srcAcc.value-=amt; else if(type==='Thu') srcAcc.value+=amt; }
+  const date=document.getElementById('txDate').value, note=document.getElementById('txNote').value;
+  if(type==='Chuyển'){
+    const destId=document.getElementById('txDest').value;
+    const destAcc=destId?DB.accounts.find(a=>a.id===destId):null;
+    if(!srcAcc||!destAcc){ alert('Chọn cả "Từ tài khoản" và "Đến tài khoản".'); return; }
+    if(srcAcc===destAcc){ alert('Hai tài khoản phải khác nhau.'); return; }
+    if(affect){ srcAcc.value-=amt; destAcc.value+=amt; }
+    DB.transactions.push({id:uid(),date,type:'Chuyển',category:'Chuyển nguồn',amount:amt,grp:'CH',
+      owner:srcAcc.owner,source:srcAcc.name,dest:destAcc.name,note:(note?note+' · ':'')+srcAcc.name+' → '+destAcc.name});
+  } else {
+    DB.transactions.push({id:uid(),date,type,category:document.getElementById('txCat').value,amount:amt,
+      owner:document.getElementById('txOwner').value,source:srcAcc?srcAcc.name:'',note});
+    if(srcAcc&&affect){ if(type==='Chi') srcAcc.value-=amt; else if(type==='Thu') srcAcc.value+=amt; }
+  }
   save(); closeModal(); renderAll();
 };
 
