@@ -106,12 +106,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
     <button class="tab" data-v="tx">Giao dịch</button>
     <button class="tab" data-v="assets">Tài sản</button>
     <button class="tab" data-v="fi">Tự chủ TC</button>
+    <button class="tab" data-v="report">Báo cáo</button>
     <button class="tab" data-v="data">Dữ liệu</button>
   </div>
 </header>
 
 <!-- ============ DASHBOARD ============ -->
 <section class="view active" id="v-dash">
+  <div id="maturityBanner"></div>
   <div class="grid g4" style="margin-top:16px">
     <div class="card full">
       <h3>Tổng tài sản ròng (Quỹ)</h3>
@@ -141,6 +143,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
     <div class="chartbox"><canvas id="cashflowChart"></canvas></div>
     <div class="mini" style="margin-top:8px">Cột đỏ là <b>chi tiêu sinh hoạt thực</b> (đã tách khỏi khoản mua tài sản/đầu tư). Đã nạp <b>3.717 giao dịch</b> từ sổ Google Sheet (12/2018 – 07/2026).</div>
   </div>
+  <div class="card" style="margin-top:14px">
+    <div class="toolbar"><h3 style="margin:0;flex:1">Xu hướng tài sản ròng theo thời gian</h3>
+      <button class="btn sm ghost" onclick="snapNow()">＋ Ghi mốc hôm nay</button></div>
+    <div class="chartbox"><canvas id="trendChart"></canvas></div>
+    <div class="mini" style="margin-top:8px">Mỗi tháng app tự ghi một mốc tổng tài sản. Bấm "Ghi mốc hôm nay" để cập nhật ngay điểm hiện tại.</div>
+  </div>
 </section>
 
 <!-- ============ TRANSACTIONS ============ -->
@@ -162,6 +170,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
         <option value="SH">Chi sinh hoạt</option><option value="TS">Mua tài sản/ĐT</option><option value="CH">Chuyển nguồn</option>
       </select>
       <select id="fCat" style="max-width:190px"><option value="">Tất cả danh mục</option></select>
+      <select id="fSrc" style="max-width:190px"><option value="">Tất cả nguồn</option></select>
       <button class="btn sm ghost" onclick="addTxModal()">+ Thêm giao dịch</button>
       <button class="btn sm ghost" onclick="transferModal()">⇄ Chuyển / Mua-Bán</button>
     </div>
@@ -238,6 +247,30 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
     <div id="fiTable"></div>
   </div>
   <div class="note" style="margin-top:12px">Đây là công cụ ước lượng để tham khảo, không phải lời khuyên đầu tư. Kết quả phụ thuộc hoàn toàn vào các giả định bạn nhập. Thị trường luôn có rủi ro.</div>
+</section>
+
+<!-- ============ REPORT ============ -->
+<section class="view" id="v-report">
+  <div class="card" style="margin-top:16px">
+    <div class="toolbar">
+      <select id="rpYear" style="max-width:130px"></select>
+      <select id="rpMonth" style="max-width:150px"></select>
+    </div>
+    <div class="grid g4">
+      <div class="card"><h3>Tổng thu</h3><div class="stat sm" style="color:var(--green)" id="rpThu"></div></div>
+      <div class="card"><h3>Chi sinh hoạt</h3><div class="stat sm" style="color:var(--red)" id="rpChi"></div></div>
+      <div class="card"><h3>Mua tài sản/ĐT</h3><div class="stat sm" style="color:var(--violet)" id="rpAsset"></div></div>
+      <div class="card"><h3>Tỷ lệ tiết kiệm</h3><div class="stat sm" id="rpRate"></div></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3 id="rpTrendTitle">Thu / Chi sinh hoạt theo tháng</h3>
+    <div class="chartbox"><canvas id="rpChart"></canvas></div>
+  </div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Chi sinh hoạt theo danh mục</h3><div id="rpCat"></div></div>
+    <div class="card"><h3>Khoản chi lớn nhất</h3><div id="rpTop"></div></div>
+  </div>
 </section>
 
 <!-- ============ DATA ============ -->
@@ -325,11 +358,17 @@ const SEED = {
   owners: (typeof SEED_OWN!=='undefined'?SEED_OWN:[]).map(o=>({id:uid(),group:o.group,name:o.name,value:o.value})),
   transactions: (typeof SEED_TX!=='undefined'?SEED_TX:[]).map(x=>({id:uid(),date:x.d,type:x.t,category:x.c,amount:x.a,grp:x.g,note:x.n,owner:x.o})),
   fi:{start:2546190762,contrib:25000000,grow:5,ret:8,exp:40000000,swr:4,infl:3.5},
-  // Giá thị trường (cập nhật 29/07/2026) — số lượng & giá vốn suy từ sổ, sửa được
+  // Giá thị trường (cập nhật 29/07/2026) — SL & giá vốn tính chính xác từ sổ mua kim loại
   prices:[
-    {key:'Vàng', match:'vàng', unit:'chỉ',   qty:16,    cost:12391313, now:14000000},
-    {key:'Bạc',  match:'bạc',  unit:'lượng', qty:174,   cost:2378368,  now:2285000},
-    {key:'USD',  match:'dola', unit:'USD',   qty:12210, cost:26650,    now:26300}
+    {key:'Vàng', match:'vàng', unit:'chỉ',   qty:16.3, cost:12163252, now:14000000},
+    {key:'Bạc',  match:'bạc',  unit:'lượng', qty:164,  cost:2529840,  now:2285000},
+    {key:'USD',  match:'dola', unit:'USD',   qty:12210,cost:26650,    now:26300}
+  ],
+  // Mốc tài sản theo thời gian (net worth) — tự ghi thêm mỗi tháng
+  snapshots:[
+    {d:'2026-01-30', v:1649204821},
+    {d:'2026-02-22', v:1915498615},
+    {d:'2026-07-30', v:2546190762}
   ]
 };
 
@@ -353,6 +392,15 @@ function load(){
   if(!DB.fi) DB.fi=structuredClone(SEED.fi);
   if(!DB.owners) DB.owners=structuredClone(SEED.owners);
   if(!DB.prices) DB.prices=structuredClone(SEED.prices);
+  if(!DB.snapshots) DB.snapshots=structuredClone(SEED.snapshots);
+}
+/* Ghi 1 mốc net worth cho tháng hiện tại (cập nhật nếu đã có) */
+function recordSnapshot(){
+  const t=assetTotal(), d=todayISO(), m=d.slice(0,7);
+  if(!DB.snapshots) DB.snapshots=[];
+  const s=DB.snapshots.find(x=>x.d.slice(0,7)===m);
+  if(s){ if(s.v!==t){ s.v=t; s.d=d; return true; } return false; }
+  DB.snapshots.push({d,v:t}); DB.snapshots.sort((a,b)=>a.d.localeCompare(b.d)); return true;
 }
 function save(){ store.set(KEY, JSON.stringify(DB)); cloudSchedulePush(); }
 
@@ -515,6 +563,91 @@ function renderDash(){
     options:{onClick:(e,els)=>{if(els.length)showMonthDetail(months[els[0].index]);},plugins:{legend:{labels:{color:'#8fa3b5'}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)}}},
       scales:{x:{ticks:{color:'#8fa3b5'},grid:{display:false}},y:{ticks:{color:'#8fa3b5',callback:v=>fmtShort(v)},grid:{color:'#2a3a4a'}}}}
   });
+  renderMaturity(); renderTrend();
+}
+
+/* ===== Nhắc đáo hạn sổ tiết kiệm ===== */
+function renderMaturity(){
+  const el=document.getElementById('maturityBanner'); if(!el) return;
+  const today=todayISO();
+  const soon=DB.accounts.filter(a=>a.daohan&&a.value>0).map(a=>{
+    const days=Math.round((new Date(a.daohan)-new Date(today))/86400000);
+    return {...a,days};
+  }).filter(a=>a.days<=45).sort((x,y)=>x.days-y.days);
+  if(!soon.length){ el.innerHTML=''; return; }
+  el.innerHTML=`<div class="card" style="margin-top:16px;border-left:4px solid var(--amber)">
+    <h3 style="color:var(--amber)">🔔 Sổ tiết kiệm sắp/đã đáo hạn (${soon.length})</h3>
+    ${soon.map(a=>{const lbl=a.days<0?`quá hạn ${-a.days} ngày`:a.days===0?'đáo hạn hôm nay':`còn ${a.days} ngày`;
+      const col=a.days<0?'var(--red)':a.days<=7?'var(--amber)':'var(--muted)';
+      return `<div class="kv"><span>${a.name} <span class="mini">· ${a.owner}${a.laisuat?' · '+a.laisuat+'%/năm':''}</span></span>
+      <span><b>${fmt(a.value)}</b> <span style="color:${col}">· ${lbl} (${a.daohan.split('-').reverse().join('/')})</span></span></div>`;}).join('')}</div>`;
+}
+
+/* ===== Xu hướng tài sản theo thời gian ===== */
+let trendChart;
+function renderTrend(){
+  const cv=document.getElementById('trendChart'); if(!cv) return;
+  const snaps=(DB.snapshots||[]).slice().sort((a,b)=>a.d.localeCompare(b.d));
+  if(trendChart)trendChart.destroy();
+  trendChart=safeChart(cv,{
+    type:'line',
+    data:{labels:snaps.map(s=>s.d.split('-').reverse().slice(0,2).join('/')),
+      datasets:[{label:'Tài sản ròng',data:snaps.map(s=>s.v),borderColor:'#37c2a8',backgroundColor:'rgba(55,194,168,.12)',fill:true,tension:.25,pointRadius:3,pointBackgroundColor:'#37c2a8'}]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(c.raw)}}},
+      scales:{x:{ticks:{color:'#8fa3b5'},grid:{display:false}},y:{ticks:{color:'#8fa3b5',callback:v=>fmtShort(v)},grid:{color:'#2a3a4a'}}}}
+  });
+}
+window.snapNow=()=>{ recordSnapshot(); save(); renderTrend(); alert('Đã ghi mốc tổng tài sản '+fmt(assetTotal())+' cho tháng này.'); };
+
+/* ================= BÁO CÁO THÁNG/NĂM ================= */
+let rpChartObj;
+function renderReport(){
+  const ys=document.getElementById('rpYear'), ms=document.getElementById('rpMonth');
+  const years=[...new Set(DB.transactions.map(t=>t.date.slice(0,4)))].filter(Boolean).sort().reverse();
+  if(!years.length){ document.getElementById('rpThu').textContent='—'; return; }
+  if(!ys.dataset.init){ ys.innerHTML=years.map(y=>`<option>${y}</option>`).join(''); ys.value=years[0]; ys.dataset.init='1';
+    ys.onchange=renderReport; ms.onchange=renderReport; }
+  const yr=ys.value||years[0];
+  const curMo=ms.value;
+  ms.innerHTML='<option value="">Cả năm</option>'+Array.from({length:12},(_,i)=>`<option value="${String(i+1).padStart(2,'0')}">Tháng ${i+1}</option>`).join('');
+  ms.value=curMo||'';
+  const mo=ms.value;
+  const inRange=t=> t.date.slice(0,4)===yr && (!mo||t.date.slice(5,7)===mo);
+  const list=DB.transactions.filter(inRange);
+  const thu=sumType(list,'Thu'), chi=sumLiving(list), asset=sumAsset(list);
+  document.getElementById('rpThu').textContent=fmt(thu);
+  document.getElementById('rpChi').textContent=fmt(chi);
+  document.getElementById('rpAsset').textContent=fmt(asset);
+  const rate=thu>0?Math.round((thu-chi)/thu*100):0;
+  const re=document.getElementById('rpRate'); re.textContent=thu>0?rate+'%':'—';
+  re.style.color=rate>=30?'var(--green)':rate>=0?'var(--amber)':'var(--red)';
+  // chart: theo tháng (nếu cả năm) hoặc theo ngày (nếu 1 tháng)
+  let labels,thuD,chiD,title;
+  if(!mo){ title='Thu / Chi sinh hoạt 12 tháng năm '+yr;
+    labels=Array.from({length:12},(_,i)=>'T'+(i+1));
+    thuD=labels.map((_,i)=>sumType(DB.transactions.filter(t=>t.date.slice(0,7)===yr+'-'+String(i+1).padStart(2,'0')),'Thu'));
+    chiD=labels.map((_,i)=>sumLiving(DB.transactions.filter(t=>t.date.slice(0,7)===yr+'-'+String(i+1).padStart(2,'0'))));
+  } else { title='Thu / Chi sinh hoạt theo ngày · '+mo+'/'+yr;
+    const days=new Date(+yr,+mo,0).getDate();
+    labels=Array.from({length:days},(_,i)=>String(i+1));
+    thuD=labels.map(d=>sumType(list.filter(t=>+t.date.slice(8,10)===+d),'Thu'));
+    chiD=labels.map(d=>sumLiving(list.filter(t=>+t.date.slice(8,10)===+d)));
+  }
+  document.getElementById('rpTrendTitle').textContent=title;
+  if(rpChartObj)rpChartObj.destroy();
+  rpChartObj=safeChart(document.getElementById('rpChart'),{type:'bar',
+    data:{labels,datasets:[{label:'Thu',data:thuD,backgroundColor:'#37c2a8',borderRadius:4},{label:'Chi SH',data:chiD,backgroundColor:'#f0665f',borderRadius:4}]},
+    options:{plugins:{legend:{labels:{color:'#8fa3b5'}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)}}},
+      scales:{x:{ticks:{color:'#8fa3b5'},grid:{display:false}},y:{ticks:{color:'#8fa3b5',callback:v=>fmtShort(v)},grid:{color:'#2a3a4a'}}}}});
+  // category breakdown
+  const cb={}; list.filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)).forEach(t=>cb[t.category||'Khác']=(cb[t.category||'Khác']||0)+parseNum(t.amount));
+  const ent=Object.entries(cb).sort((a,b)=>b[1]-a[1]); const tot=ent.reduce((s,e)=>s+e[1],0);
+  document.getElementById('rpCat').innerHTML= ent.length? ent.map(([c,v],i)=>`
+    <div style="margin:9px 0"><div class="row" style="justify-content:space-between"><span>${c}</span><span class="mini">${fmt(v)} · ${(v/tot*100).toFixed(0)}%</span></div>
+    <div class="bar"><span style="width:${v/tot*100}%;background:${['#f0665f','#f2b84b','#4f9cf9','#a887f4','#37c2a8','#e0e6ed'][i%6]}"></span></div></div>`).join('') : '<div class="empty">Không có khoản chi.</div>';
+  // top expenses
+  const top=list.filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)).sort((a,b)=>parseNum(b.amount)-parseNum(a.amount)).slice(0,8);
+  document.getElementById('rpTop').innerHTML= top.length? `<table><tbody>`+top.map(t=>`<tr><td>${t.date.slice(8)}/${t.date.slice(5,7)}<div class="mini">${t.category||''}${t.note?' · '+t.note.slice(0,24):''}</div></td><td class="num" style="color:var(--red)">${fmt(parseNum(t.amount))}</td></tr>`).join('')+`</tbody></table>` : '<div class="empty">Không có khoản chi.</div>';
 }
 
 /* ================= DRILL-DOWN DETAILS ================= */
@@ -564,13 +697,17 @@ function fillCatFilter(){
   const sel=document.getElementById('fCat');
   const all=[...(DB.categories.Thu||[]),...(DB.categories.Chi||[])];
   sel.innerHTML='<option value="">Tất cả danh mục</option>'+[...new Set(all)].map(c=>`<option>${c}</option>`).join('');
+  const ss=document.getElementById('fSrc');
+  if(ss){ const cur=ss.value; const srcs=[...new Set(DB.transactions.map(t=>t.source).filter(Boolean))].sort();
+    ss.innerHTML='<option value="">Tất cả nguồn</option>'+srcs.map(s=>`<option>${s}</option>`).join(''); ss.value=cur; }
 }
 function currentTxList(){
   const mo=document.getElementById('fMonth').value;
   const ty=document.getElementById('fType').value;
   const ca=document.getElementById('fCat').value;
   const gr=document.getElementById('fGrp')?document.getElementById('fGrp').value:'';
-  return DB.transactions.filter(t=>(!mo||monthOf(t.date)===mo)&&(!ty||t.type===ty)&&(!ca||t.category===ca)&&(!gr||(t.grp||'SH')===gr))
+  const sr=document.getElementById('fSrc')?document.getElementById('fSrc').value:'';
+  return DB.transactions.filter(t=>(!mo||monthOf(t.date)===mo)&&(!ty||t.type===ty)&&(!ca||t.category===ca)&&(!gr||(t.grp||'SH')===gr)&&(!sr||t.source===sr))
     .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
 }
 function renderTx(){
@@ -590,7 +727,7 @@ function renderTx(){
     shown.map(t=>{const cls=t.type==='Thu'?'thu':t.type==='Chi'?'chi':'chuyen';
       const lbl=t.type==='Chi'&&t.grp==='TS'?'Mua TS':t.type;
       return `<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')"><td>${t.date.slice(8)}/${t.date.slice(5,7)}</td><td><span class="tag ${cls}">${lbl}</span></td>
-      <td>${t.category||''}</td><td class="mini">${(t.note||'').slice(0,40)}${t.owner?' · '+t.owner:''}</td>
+      <td>${t.category||''}${t.source?`<div class="mini" style="color:var(--accent2)">◦ ${t.source}</div>`:''}</td><td class="mini">${(t.note||'').slice(0,40)}${t.owner?' · '+t.owner:''}</td>
       <td class="num" style="color:${t.type==='Chi'?'var(--red)':t.type==='Thu'?'var(--green)':'var(--txt)'}">${t.type==='Chi'?'-':''}${fmt(parseNum(t.amount))}</td>
       <td class="num"><button class="btn sm ghost" onclick="event.stopPropagation();delTx('${t.id}')">✕</button></td></tr>`;}).join('')+`</tbody></table>`;
   }
@@ -613,7 +750,8 @@ window.showTxDetail=id=>{
     <div class="kv"><span>Loại</span><b>${t.type}</b></div>
     <div class="kv"><span>Nhóm</span><b>${gmap[t.grp||'SH']||'—'}</b></div>
     <div class="kv"><span>Danh mục</span><b>${t.category||'—'}</b></div>
-    <div class="kv"><span>Chủ sở hữu / nguồn</span><b>${t.owner||'—'}</b></div>
+    <div class="kv"><span>Nguồn (tài khoản)</span><b>${t.source||'—'}</b></div>
+    <div class="kv"><span>Chủ sở hữu</span><b>${t.owner||'—'}</b></div>
     <div class="kv"><span>Nội dung</span><b style="max-width:60%;text-align:right">${t.note||'—'}</b></div>
     <div class="row" style="margin-top:16px"><button class="btn red" style="flex:1" onclick="delTx('${t.id}');closeModal()">Xóa giao dịch</button></div>`);
 };
@@ -672,7 +810,7 @@ function renderPrices(){
         <b>${p.key} <span class="mini">(${p.unit})</span></b>
         <span style="color:${plc};font-weight:600">${pl>=0?'+':''}${fmt(pl)} <span class="mini">(${pct>=0?'+':''}${pct.toFixed(1)}%)</span></span></div>
       <div class="row">
-        <div class="field" style="flex:1;min-width:80px;margin:0"><label>Số lượng</label><input type="text" inputmode="decimal" value="${VND.format(p.qty)}" onchange="updPrice(${i},'qty',this.value)"></div>
+        <div class="field" style="flex:1;min-width:80px;margin:0"><label>Số lượng</label><input type="text" inputmode="decimal" value="${p.qty}" onchange="updPrice(${i},'qty',this.value)"></div>
         <div class="field" style="flex:1.2;min-width:100px;margin:0"><label>Giá vốn/${p.unit}</label><input type="text" inputmode="numeric" value="${VND.format(p.cost)}" onchange="updPrice(${i},'cost',this.value)"></div>
         <div class="field" style="flex:1.2;min-width:100px;margin:0"><label>Giá hiện tại/${p.unit}</label><input type="text" inputmode="numeric" value="${VND.format(p.now)}" onchange="updPrice(${i},'now',this.value)"></div>
       </div>
@@ -683,7 +821,7 @@ function renderPrices(){
   box.innerHTML=rows+`<div class="row" style="justify-content:space-between;margin-top:10px">
     <b>Tổng giá trị TT: ${fmt(totVal)}</b><b style="color:${plc}">Lời/Lỗ: ${totPL>=0?'+':''}${fmt(totPL)}</b></div>`;
 }
-window.updPrice=(i,f,v)=>{ DB.prices[i][f]=parseNum(v); save(); renderPrices(); };
+window.updPrice=(i,f,v)=>{ DB.prices[i][f]= f==='qty'? (parseFloat(String(v).replace(/\s/g,'').replace(',','.'))||0) : parseNum(v); save(); renderPrices(); };
 window.markToMarket=()=>{
   let n=0;
   DB.prices.forEach(p=>{
@@ -843,21 +981,31 @@ window.addTxModal=()=>{
     <div class="field" style="margin-top:12px"><label>Ngày</label><input id="txDate" type="date" value="${todayISO()}"></div>
     <div class="field"><label>Số tiền (₫)</label><input id="txAmt" type="text" inputmode="numeric" placeholder="0" oninput="fmtInput(this)"></div>
     <div class="field"><label>Danh mục</label><select id="txCat"></select></div>
-    <div class="field"><label>Chủ sở hữu / nguồn</label><select id="txOwner">
+    <div class="field"><label>Nguồn chi/thu (tài khoản)</label><select id="txSource" onchange="txSrcChanged()">
+      <option value="">— Không chọn —</option>
+      ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
+    <label class="row mini" style="margin:-4px 0 12px;cursor:pointer"><input type="checkbox" id="txAffect" checked style="width:auto">&nbsp;Tự cập nhật số dư tài khoản nguồn</label>
+    <div class="field"><label>Chủ sở hữu</label><select id="txOwner">
       ${[...new Set(DB.accounts.map(a=>a.owner))].map(o=>`<option>${o}</option>`).join('')}</select></div>
     <div class="field"><label>Nội dung / ghi chú</label><input id="txNote" placeholder="VD: Siêu thị, học phí T9..."></div>
     <button class="btn" style="width:100%" onclick="saveTx()">Lưu giao dịch</button>`);
   window._txType='Chi'; fillTxCat('Chi');
 };
+window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if([...o.options].some(x=>x.value===a.owner)) o.value=a.owner; } };
 window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); fillTxCat(t); };
 function fillTxCat(t){ const sel=document.getElementById('txCat'); const cats= t==='Chuyển'?['Chuyển nguồn']:(DB.categories[t]||[]); sel.innerHTML=cats.map(c=>`<option>${c}</option>`).join(''); }
 window.fmtInput=el=>{ const v=parseNum(el.value); el.value= v? VND.format(v):''; };
 window.saveTx=()=>{
   const amt=parseNum(document.getElementById('txAmt').value);
   if(!amt){ alert('Nhập số tiền'); return; }
-  DB.transactions.push({id:uid(),date:document.getElementById('txDate').value,type:window._txType,
+  const type=window._txType;
+  const srcId=document.getElementById('txSource').value;
+  const srcAcc=srcId?DB.accounts.find(a=>a.id===srcId):null;
+  const affect=document.getElementById('txAffect').checked;
+  DB.transactions.push({id:uid(),date:document.getElementById('txDate').value,type,
     category:document.getElementById('txCat').value,amount:amt,owner:document.getElementById('txOwner').value,
-    note:document.getElementById('txNote').value});
+    source:srcAcc?srcAcc.name:'', note:document.getElementById('txNote').value});
+  if(srcAcc&&affect){ if(type==='Chi') srcAcc.value-=amt; else if(type==='Thu') srcAcc.value+=amt; }
   save(); closeModal(); renderAll();
 };
 
@@ -974,13 +1122,14 @@ function renderAll(){
   else if(v==='tx')renderTx();
   else if(v==='assets')renderAssets();
   else if(v==='fi')renderFI();
+  else if(v==='report')renderReport();
   else if(v==='data')renderData();
   document.getElementById('netMini').textContent=fmtShort(assetTotal());
 }
-['fMonth','fType','fCat','fGrp'].forEach(id=>document.addEventListener('change',e=>{ if(e.target.id===id)renderTx(); }));
+['fMonth','fType','fCat','fGrp','fSrc'].forEach(id=>document.addEventListener('change',e=>{ if(e.target.id===id)renderTx(); }));
 
 /* ================= INIT ================= */
-load(); bindFI(); renderAll();
+load(); if(recordSnapshot()) save(); bindFI(); renderAll();
 if(typeof cloudInit==='function') cloudInit();
 </script>
 </body>
