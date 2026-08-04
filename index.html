@@ -453,7 +453,9 @@ async function cloudInit(){
     CLOUD.sb=supabase.createClient(url,key,{auth:{persistSession:!requireLogin(),autoRefreshToken:true}});
     const {data}=await CLOUD.sb.auth.getSession();
     CLOUD.user=data&&data.session?data.session.user:null;
-    CLOUD.sb.auth.onAuthStateChange((_e,s)=>{ CLOUD.user=s?s.user:null; renderData(); updateSyncBadge(); applyGate(); });
+    CLOUD.sb.auth.onAuthStateChange((_e,s)=>{ CLOUD.user=s?s.user:null;
+      if(_e==='PASSWORD_RECOVERY'){ window._recovery=true; const g=document.getElementById('authGate'); if(g)g.style.display='flex'; renderGate(); return; }
+      renderData(); updateSyncBadge(); applyGate(); });
     if(CLOUD.user){ await cloudPull(); }
     CLOUD.status=CLOUD.user?'synced':'configured';
   }catch(e){ CLOUD.status='local'; }
@@ -532,11 +534,33 @@ function renderGate(){
     el.innerHTML=`<p class="mini">⚠️ Đang tải thư viện đăng nhập. Nếu lâu, kiểm tra mạng và tải lại trang.</p>`;
     return;
   }
-  el.innerHTML=`<div class="field"><label>Email</label><input id="gEmail" type="email" autocomplete="username"></div>
+  if(window._recovery){
+    el.innerHTML=`<p class="mini">Đặt mật khẩu mới cho tài khoản của bạn:</p>
+      <div class="field"><label>Mật khẩu mới (≥ 6 ký tự)</label><input id="gNewPw" type="password" autocomplete="new-password"></div>
+      <button class="btn" style="width:100%" onclick="gateSetNewPw()">Lưu mật khẩu mới & vào app</button>`;
+    return;
+  }
+  el.innerHTML=`<div class="field"><label>Email</label><input id="gEmail" type="email" autocomplete="username" value="${(store.get('last_email')||'')}"></div>
     <div class="field"><label>Mật khẩu</label><input id="gPw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')gateSignIn()"></div>
     <button class="btn" style="width:100%" onclick="gateSignIn()">Đăng nhập</button>
-    <p class="mini" style="margin-top:10px;text-align:center">Quên mật khẩu? Đặt lại trong Supabase → Authentication → Users.</p>`;
+    <p style="margin-top:12px;text-align:center"><a href="#" onclick="gateForgot();return false" style="font-size:13.5px">Quên mật khẩu? Gửi email đặt lại</a></p>`;
 }
+window.gateForgot=async()=>{
+  if(!CLOUD.sb){ alert('Chưa sẵn sàng, thử lại.'); return; }
+  const email=(document.getElementById('gEmail').value||'').trim();
+  if(!email){ alert('Nhập email của bạn vào ô Email trước.'); return; }
+  const {error}=await CLOUD.sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  alert(error?('Lỗi: '+error.message):'Đã gửi email đặt lại mật khẩu tới '+email+'.\nMở email → bấm link → nó quay lại app để bạn đặt mật khẩu mới.\n(Nhớ đã thêm URL app vào Supabase → Authentication → URL Configuration → Redirect URLs.)');
+};
+window.gateSetNewPw=async()=>{
+  const pw=document.getElementById('gNewPw').value;
+  if(!pw||pw.length<6){ alert('Mật khẩu ≥ 6 ký tự.'); return; }
+  const {error}=await CLOUD.sb.auth.updateUser({password:pw});
+  if(error){ alert('Lỗi: '+error.message); return; }
+  window._recovery=false;
+  await cloudPull(); renderData(); updateSyncBadge(); applyGate();
+  alert('Đã đổi mật khẩu thành công. Lần sau đăng nhập bằng mật khẩu mới.');
+};
 window.gateSaveCfg=()=>{
   const url=document.getElementById('gUrl').value.trim().replace(/\/+$/,''), key=document.getElementById('gKey').value.trim();
   if(!url||!key){ alert('Nhập đủ URL và key.'); return; }
@@ -547,6 +571,7 @@ window.gateSignIn=async()=>{
   const email=document.getElementById('gEmail').value.trim(), pw=document.getElementById('gPw').value;
   const {error}=await CLOUD.sb.auth.signInWithPassword({email,password:pw});
   if(error){ alert('Lỗi đăng nhập: '+error.message); return; }
+  store.set('last_email',email);
   await cloudPull(); renderData(); updateSyncBadge(); applyGate();
 };
 window.toggleReqLogin=(v)=>{
