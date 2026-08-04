@@ -739,11 +739,12 @@ window.gotoMonth=mo=>{ closeModal(); document.querySelector('[data-v="tx"]').cli
 /* ================= TRANSACTIONS ================= */
 function buildMonthFilter(){
   const sel=document.getElementById('fMonth');
-  const set=new Set(DB.transactions.map(t=>monthOf(t.date)));
-  set.add(monthOf(todayISO()));
+  const dataMonths=[...new Set(DB.transactions.map(t=>monthOf(t.date)))].sort().reverse();
+  const set=new Set(dataMonths); set.add(monthOf(todayISO()));
   const arr=[...set].sort().reverse();
   const firstBuild = sel.options.length===0;
-  const cur = firstBuild ? (arr[0]||'') : sel.value; // preserve selection incl. "" (tất cả)
+  // Mặc định mở tháng gần nhất CÓ giao dịch (không phải tháng hiện tại trống)
+  const cur = firstBuild ? (dataMonths[0]||monthOf(todayISO())) : sel.value;
   sel.innerHTML='<option value="">Tất cả tháng</option>'+arr.map(m=>`<option value="${m}">${m}</option>`).join('');
   sel.value=cur;
 }
@@ -783,11 +784,11 @@ function renderTx(){
   else{
     const CAP=400; const shown=list.slice(0,CAP);
     wrap.innerHTML=(list.length>CAP?`<div class="mini" style="margin-bottom:8px">Hiển thị ${CAP}/${list.length} giao dịch gần nhất. Lọc theo tháng để xem đầy đủ.</div>`:'')+
-    `<table><thead><tr><th>Ngày</th><th>Loại</th><th>Danh mục</th><th>Nội dung</th><th class="num">Số tiền</th><th></th></tr></thead><tbody>`+
+    `<table><thead><tr><th>Ngày</th><th>Loại</th><th>Danh mục</th><th>Nguồn</th><th>Nội dung</th><th class="num">Số tiền</th><th></th></tr></thead><tbody>`+
     shown.map(t=>{const cls=t.type==='Thu'?'thu':t.type==='Chi'?'chi':'chuyen';
       const lbl=t.type==='Chi'&&t.grp==='TS'?'Mua TS':t.type;
       return `<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')"><td>${t.date.slice(8)}/${t.date.slice(5,7)}</td><td><span class="tag ${cls}">${lbl}</span></td>
-      <td>${t.category||''}${t.source?`<div class="mini" style="color:var(--accent2)">◦ ${t.source}</div>`:''}</td><td class="mini">${(t.note||'').slice(0,40)}${t.owner?' · '+t.owner:''}</td>
+      <td>${t.category||''}</td><td class="mini" style="color:var(--accent2)">${t.source||''}${t.dest?`<div class="mini muted">→ ${t.dest}</div>`:''}</td><td class="mini">${(t.note||'').slice(0,40)}${t.owner?' · '+t.owner:''}</td>
       <td class="num" style="color:${t.type==='Chi'?'var(--red)':t.type==='Thu'?'var(--green)':'var(--txt)'}">${t.type==='Chi'?'-':''}${fmt(parseNum(t.amount))}</td>
       <td class="num"><button class="btn sm ghost" onclick="event.stopPropagation();delTx('${t.id}')">✕</button></td></tr>`;}).join('')+`</tbody></table>`;
   }
@@ -808,7 +809,8 @@ window.showTxList=(title,list)=>{
   const tot=list.reduce((s,t)=>s+parseNum(t.amount),0);
   openModal(`<button class="close" onclick="closeModal()">×</button><h2>${title}</h2>
     <div class="mini" style="margin-bottom:10px">${list.length} giao dịch · tổng ${fmt(tot)}</div>`+
-    (list.length?`<table><tbody>${list.slice(0,200).map(t=>`<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')"><td>${t.date.slice(8)}/${t.date.slice(5,7)}<div class="mini">${t.category||''}${t.source?' · '+t.source:''}${t.note?' · '+t.note.slice(0,26):''}</div></td><td class="num" style="color:${t.type==='Chi'?'var(--red)':t.type==='Thu'?'var(--green)':'var(--txt)'}">${t.type==='Chi'?'-':''}${fmt(parseNum(t.amount))}</td></tr>`).join('')}</tbody></table>${list.length>200?'<div class="mini" style="margin-top:6px">Hiển thị 200 giao dịch đầu.</div>':''}`:'<div class="empty">Không có giao dịch.</div>'));
+    (list.length?`<table><tbody>${list.slice(0,200).map(t=>{const src=t.source||t.owner||'';
+      return `<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')"><td>${t.date.slice(8)}/${t.date.slice(5,7)}<div class="mini">${t.category||''}${t.note?' · '+t.note.slice(0,26):''}</div>${src?`<div class="mini" style="color:var(--accent2)">◦ ${src}${t.dest?' → '+t.dest:''}</div>`:''}</td><td class="num" style="color:${t.type==='Chi'?'var(--red)':t.type==='Thu'?'var(--green)':'var(--txt)'}">${t.type==='Chi'?'-':''}${fmt(parseNum(t.amount))}</td></tr>`;}).join('')}</tbody></table>${list.length>200?'<div class="mini" style="margin-top:6px">Hiển thị 200 giao dịch đầu.</div>':''}`:'<div class="empty">Không có giao dịch.</div>'));
 };
 function rpRange(){ const yr=document.getElementById('rpYear').value, mo=document.getElementById('rpMonth').value;
   return DB.transactions.filter(t=>t.date.slice(0,4)===yr && (!mo||t.date.slice(5,7)===mo)); }
