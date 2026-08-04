@@ -442,7 +442,7 @@ async function cloudPull(){
     CLOUD.status='syncing'; updateSyncBadge();
     const {data,error}=await CLOUD.sb.from('app_data').select('data').eq('user_id',CLOUD.user.id).maybeSingle();
     if(error) throw error;
-    if(data&&data.data){ DB=data.data; store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); }
+    if(data&&data.data){ DB=data.data; const bf=autoBackfill(); store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); if(bf) cloudSchedulePush(); }
     else { await cloudPush(true); }   // first time: đẩy dữ liệu local lên
     CLOUD.status='synced';
   }catch(e){ CLOUD.status='error'; }
@@ -1217,12 +1217,17 @@ function dl(content,name,type){ const b=new Blob([content],{type}); const u=URL.
 window.importJSON=e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader();
   r.onload=()=>{ try{ const d=JSON.parse(r.result); if(d.accounts&&d.categories){ DB=d; save(); renderAll(); bindFI(); alert('Đã nhập dữ liệu thành công.'); } else alert('File không đúng định dạng.'); }catch(x){ alert('Không đọc được file.'); } };
   r.readAsText(f); e.target.value=''; };
-window.backfillSources=()=>{
+function autoBackfill(){
+  if(typeof SEED_TX==='undefined'||!DB||!Array.isArray(DB.transactions)) return 0;
   const idx={};
   SEED_TX.forEach(x=>{ if(x.s||x.de){ idx[x.d+'|'+x.a+'|'+x.t+'|'+(x.n||'')]={s:x.s||'',de:x.de||''}; } });
   let n=0;
-  DB.transactions.forEach(t=>{ if(!t.source){ const m=idx[t.date+'|'+parseNum(t.amount)+'|'+t.type+'|'+(t.note||'')]; if(m){ if(m.s)t.source=m.s; if(m.de&&!t.dest)t.dest=m.de; n++; } } });
-  save(); renderAll(); alert('Đã bổ sung nguồn cho '+n+' giao dịch cũ. Cột Nguồn giờ đã có dữ liệu.');
+  DB.transactions.forEach(t=>{ if(!t.source){ const m=idx[t.date+'|'+parseNum(t.amount)+'|'+t.type+'|'+(t.note||'')]; if(m&&m.s){ t.source=m.s; if(m.de&&!t.dest)t.dest=m.de; n++; } } });
+  return n;
+}
+window.backfillSources=()=>{
+  const n=autoBackfill(); save(); renderAll();
+  alert('Đã bổ sung nguồn cho '+n+' giao dịch. Cột Nguồn giờ đã có dữ liệu.');
 };
 window.resetSeed=()=>{ if(confirm('Nạp lại dữ liệu gốc từ Google Sheet? Dữ liệu hiện tại sẽ bị thay thế.')){ DB=structuredClone(SEED); save(); renderAll(); bindFI(); } };
 window.wipeAll=()=>{ if(confirm('Xóa TOÀN BỘ dữ liệu? Không thể hoàn tác.')){ DB={categories:structuredClone(SEED.categories),accounts:[],owners:[],transactions:[],fi:structuredClone(SEED.fi)}; save(); renderAll(); bindFI(); } };
@@ -1242,7 +1247,7 @@ function renderAll(){
 ['fMonth','fType','fCat','fGrp','fSrc'].forEach(id=>document.addEventListener('change',e=>{ if(e.target.id===id)renderTx(); }));
 
 /* ================= INIT ================= */
-load(); if(recordSnapshot()) save(); bindFI(); renderAll();
+load(); const _bf0=autoBackfill(); if(recordSnapshot()||_bf0) save(); bindFI(); renderAll();
 if(requireLogin()){ const g=document.getElementById('authGate'); if(g){ g.style.display='flex'; renderGate(); } }
 if(typeof cloudInit==='function') cloudInit();
 </script>
