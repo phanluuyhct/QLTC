@@ -257,9 +257,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
       <select id="rpMonth" style="max-width:150px"></select>
     </div>
     <div class="grid g4">
-      <div class="card"><h3>Tổng thu</h3><div class="stat sm" style="color:var(--green)" id="rpThu"></div></div>
-      <div class="card"><h3>Chi sinh hoạt</h3><div class="stat sm" style="color:var(--red)" id="rpChi"></div></div>
-      <div class="card"><h3>Mua tài sản/ĐT</h3><div class="stat sm" style="color:var(--violet)" id="rpAsset"></div></div>
+      <div class="card" style="cursor:pointer" onclick="rpShow('thu')"><h3>Tổng thu ›</h3><div class="stat sm" style="color:var(--green)" id="rpThu"></div></div>
+      <div class="card" style="cursor:pointer" onclick="rpShow('chi')"><h3>Chi sinh hoạt ›</h3><div class="stat sm" style="color:var(--red)" id="rpChi"></div></div>
+      <div class="card" style="cursor:pointer" onclick="rpShow('asset')"><h3>Mua tài sản/ĐT ›</h3><div class="stat sm" style="color:var(--violet)" id="rpAsset"></div></div>
       <div class="card"><h3>Tỷ lệ tiết kiệm</h3><div class="stat sm" id="rpRate"></div></div>
     </div>
   </div>
@@ -688,17 +688,20 @@ function renderReport(){
   if(rpChartObj)rpChartObj.destroy();
   rpChartObj=safeChart(document.getElementById('rpChart'),{type:'bar',
     data:{labels,datasets:[{label:'Thu',data:thuD,backgroundColor:'#37c2a8',borderRadius:4},{label:'Chi SH',data:chiD,backgroundColor:'#f0665f',borderRadius:4}]},
-    options:{plugins:{legend:{labels:{color:'#8fa3b5'}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)}}},
+    options:{onClick:(e,els)=>{ if(!els.length)return; const ix=els[0].index;
+        if(!mo){ const mm=String(ix+1).padStart(2,'0'); showTxList('Giao dịch tháng '+(ix+1)+'/'+yr, DB.transactions.filter(t=>t.date.slice(0,7)===yr+'-'+mm)); }
+        else { const dd=String(ix+1).padStart(2,'0'); showTxList('Giao dịch '+(ix+1)+'/'+mo+'/'+yr, DB.transactions.filter(t=>t.date===yr+'-'+mo+'-'+dd)); } },
+      plugins:{legend:{labels:{color:'#8fa3b5'}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmt(c.raw)}}},
       scales:{x:{ticks:{color:'#8fa3b5'},grid:{display:false}},y:{ticks:{color:'#8fa3b5',callback:v=>fmtShort(v)},grid:{color:'#2a3a4a'}}}}});
   // category breakdown
   const cb={}; list.filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)).forEach(t=>cb[t.category||'Khác']=(cb[t.category||'Khác']||0)+parseNum(t.amount));
   const ent=Object.entries(cb).sort((a,b)=>b[1]-a[1]); const tot=ent.reduce((s,e)=>s+e[1],0);
   document.getElementById('rpCat').innerHTML= ent.length? ent.map(([c,v],i)=>`
-    <div style="margin:9px 0"><div class="row" style="justify-content:space-between"><span>${c}</span><span class="mini">${fmt(v)} · ${(v/tot*100).toFixed(0)}%</span></div>
+    <div style="margin:9px 0;cursor:pointer" onclick="rpShowCat('${c.replace(/'/g,"\\'")}')"><div class="row" style="justify-content:space-between"><span>${c} ›</span><span class="mini">${fmt(v)} · ${(v/tot*100).toFixed(0)}%</span></div>
     <div class="bar"><span style="width:${v/tot*100}%;background:${['#f0665f','#f2b84b','#4f9cf9','#a887f4','#37c2a8','#e0e6ed'][i%6]}"></span></div></div>`).join('') : '<div class="empty">Không có khoản chi.</div>';
   // top expenses
   const top=list.filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)).sort((a,b)=>parseNum(b.amount)-parseNum(a.amount)).slice(0,8);
-  document.getElementById('rpTop').innerHTML= top.length? `<table><tbody>`+top.map(t=>`<tr><td>${t.date.slice(8)}/${t.date.slice(5,7)}<div class="mini">${t.category||''}${t.note?' · '+t.note.slice(0,24):''}</div></td><td class="num" style="color:var(--red)">${fmt(parseNum(t.amount))}</td></tr>`).join('')+`</tbody></table>` : '<div class="empty">Không có khoản chi.</div>';
+  document.getElementById('rpTop').innerHTML= top.length? `<table><tbody>`+top.map(t=>`<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')"><td>${t.date.slice(8)}/${t.date.slice(5,7)}<div class="mini">${t.category||''}${t.note?' · '+t.note.slice(0,24):''}</div></td><td class="num" style="color:var(--red)">${fmt(parseNum(t.amount))}</td></tr>`).join('')+`</tbody></table>` : '<div class="empty">Không có khoản chi.</div>';
 }
 
 /* ================= DRILL-DOWN DETAILS ================= */
@@ -771,7 +774,12 @@ function renderTx(){
   const net=thu-chi;
   const ne=document.getElementById('txNet'); ne.textContent=(net>=0?'+':'')+fmt(net); ne.style.color=net>=0?'var(--green)':'var(--red)';
   const wrap=document.getElementById('txTableWrap');
-  if(!list.length){ wrap.innerHTML='<div class="empty">Chưa có giao dịch. Bấm <b>+</b> để thêm.</div>'; }
+  if(!list.length){
+    const has=DB.transactions.length;
+    wrap.innerHTML = has
+      ? `<div class="empty">Không có giao dịch khớp bộ lọc.<div class="mini" style="margin:6px 0">(Tổng ${has} giao dịch đang bị ẩn bởi bộ lọc — ví dụ ô "nguồn".)</div><button class="btn sm" onclick="clearTxFilters()">Xóa toàn bộ bộ lọc</button></div>`
+      : '<div class="empty">Chưa có giao dịch. Bấm <b>+</b> để thêm.</div>';
+  }
   else{
     const CAP=400; const shown=list.slice(0,CAP);
     wrap.innerHTML=(list.length>CAP?`<div class="mini" style="margin-bottom:8px">Hiển thị ${CAP}/${list.length} giao dịch gần nhất. Lọc theo tháng để xem đầy đủ.</div>`:'')+
@@ -793,6 +801,22 @@ function renderTx(){
     : '<div class="empty">Chưa có khoản chi trong kỳ này.</div>';
 }
 window.delTx=id=>{ DB.transactions=DB.transactions.filter(t=>t.id!==id); save(); renderAll(); };
+window.clearTxFilters=()=>{ ['fType','fCat','fGrp','fSrc'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';}); const m=document.getElementById('fMonth'); if(m)m.value=''; renderTx(); };
+/* Modal liệt kê danh sách giao dịch (dùng cho drill-down Báo cáo) */
+window.showTxList=(title,list)=>{
+  list=list.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const tot=list.reduce((s,t)=>s+parseNum(t.amount),0);
+  openModal(`<button class="close" onclick="closeModal()">×</button><h2>${title}</h2>
+    <div class="mini" style="margin-bottom:10px">${list.length} giao dịch · tổng ${fmt(tot)}</div>`+
+    (list.length?`<table><tbody>${list.slice(0,200).map(t=>`<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')"><td>${t.date.slice(8)}/${t.date.slice(5,7)}<div class="mini">${t.category||''}${t.source?' · '+t.source:''}${t.note?' · '+t.note.slice(0,26):''}</div></td><td class="num" style="color:${t.type==='Chi'?'var(--red)':t.type==='Thu'?'var(--green)':'var(--txt)'}">${t.type==='Chi'?'-':''}${fmt(parseNum(t.amount))}</td></tr>`).join('')}</tbody></table>${list.length>200?'<div class="mini" style="margin-top:6px">Hiển thị 200 giao dịch đầu.</div>':''}`:'<div class="empty">Không có giao dịch.</div>'));
+};
+function rpRange(){ const yr=document.getElementById('rpYear').value, mo=document.getElementById('rpMonth').value;
+  return DB.transactions.filter(t=>t.date.slice(0,4)===yr && (!mo||t.date.slice(5,7)===mo)); }
+window.rpShow=(kind)=>{ const l=rpRange(); const yr=document.getElementById('rpYear').value, mo=document.getElementById('rpMonth').value; const lbl=mo?mo+'/'+yr:'năm '+yr;
+  if(kind==='thu') showTxList('Các khoản Thu · '+lbl, l.filter(t=>t.type==='Thu'));
+  else if(kind==='chi') showTxList('Chi sinh hoạt · '+lbl, l.filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)));
+  else if(kind==='asset') showTxList('Mua tài sản/ĐT · '+lbl, l.filter(t=>t.type==='Chi'&&t.grp==='TS')); };
+window.rpShowCat=(cat)=>{ const l=rpRange(); showTxList('Chi: '+cat, l.filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)&&(t.category||'Khác')===cat)); };
 window.showTxDetail=id=>{
   const t=DB.transactions.find(x=>x.id===id); if(!t)return;
   const gmap={SH:'Chi sinh hoạt',TS:'Mua tài sản/đầu tư',CH:'Chuyển nguồn',Thu:'Thu nhập'};
@@ -1048,6 +1072,9 @@ window.addTxModal=()=>{
     <div class="field"><label>Nội dung / ghi chú</label><input id="txNote" placeholder="VD: Siêu thị, học phí T9..."></div>
     <button class="btn" style="width:100%" onclick="saveTx()">Lưu giao dịch</button>`);
   window._txType='Chi'; fillTxCat('Chi');
+  // Tự điền nguồn theo bộ lọc "nguồn" đang chọn ở tab Giao dịch
+  const fs=document.getElementById('fSrc'); const curSrc=fs?fs.value:'';
+  if(curSrc){ const acc=DB.accounts.find(a=>a.name===curSrc); if(acc){ const sel=document.getElementById('txSource'); if(sel){ sel.value=acc.id; txSrcChanged(); } } }
 };
 window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if([...o.options].some(x=>x.value===a.owner)) o.value=a.owner; } };
 window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); fillTxCat(t);
