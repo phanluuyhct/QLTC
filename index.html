@@ -467,7 +467,7 @@ async function cloudPull(){
     CLOUD.status='syncing'; updateSyncBadge();
     const {data,error}=await CLOUD.sb.from('app_data').select('data').eq('user_id',CLOUD.user.id).maybeSingle();
     if(error) throw error;
-    if(data&&data.data){ DB=data.data; const bf=autoBackfill(); const fo=autoFixOwners(); const rn=autoRestoreNotes(); store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); if(bf||fo||rn) cloudSchedulePush(); }
+    if(data&&data.data){ DB=data.data; const bf=autoBackfill(); const fo=autoFixOwners(); const rn=autoRestoreNotes(); const cn=autoCleanNames(); store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); if(bf||fo||rn||cn) cloudSchedulePush(); }
     else { await cloudPush(true); }   // first time: đẩy dữ liệu local lên
     CLOUD.status='synced';
   }catch(e){ CLOUD.status='error'; }
@@ -1310,7 +1310,7 @@ window.saveTx=()=>{
   } else {
     let ownv=document.getElementById('txOwner').value; if(ownv==='__new__')ownv='';
     let catv=document.getElementById('txCat').value; if(catv==='__newcat__')catv='';
-    tx={id:uid(),date,type,category:catv,amount:amt,
+    tx={id:uid(),date,type,category:catv,amount:amt,grp:(type==='Thu'?'Thu':'SH'),
       owner:ownv,source:srcAcc?srcAcc.name:'',note};
     DB.transactions.push(tx);
     if(srcAcc&&affect){ if(type==='Chi') srcAcc.value-=amt; else if(type==='Thu') srcAcc.value+=amt; }
@@ -1495,6 +1495,16 @@ function autoFixOwners(){
   DB.transactions.forEach(t=>{ if(t.owner&&OWNER_MAP[t.owner]){ t.owner=OWNER_MAP[t.owner]; n++; } });
   return n;
 }
+/* Dọn dấu "\" sót trong tên tài khoản & nguồn/đích giao dịch (từ escape của Google Sheet) */
+function autoCleanNames(){
+  if(!DB) return 0; let n=0;
+  (DB.accounts||[]).forEach(a=>{ if(a.name&&a.name.indexOf('\\')>=0){ a.name=a.name.replace(/\\/g,''); n++; } });
+  (DB.transactions||[]).forEach(t=>{
+    if(t.source&&t.source.indexOf('\\')>=0){ t.source=t.source.replace(/\\/g,''); n++; }
+    if(t.dest&&t.dest.indexOf('\\')>=0){ t.dest=t.dest.replace(/\\/g,''); n++; }
+  });
+  return n;
+}
 /* Khôi phục ghi chú đầy đủ (bỏ cắt 60 ký tự) + gộp Số Mã/Giá */
 function autoRestoreNotes(){
   if(typeof SEED_TX==='undefined'||!DB||!Array.isArray(DB.transactions)) return 0;
@@ -1526,7 +1536,7 @@ function renderAll(){
 ['fMonth','fType','fCat','fGrp','fSrc','fOwner','fSubOwner'].forEach(id=>document.addEventListener('change',e=>{ if(e.target.id===id)renderTx(); }));
 
 /* ================= INIT ================= */
-load(); const _bf0=autoBackfill(); const _fo0=autoFixOwners(); const _rn0=autoRestoreNotes(); if(recordSnapshot()||_bf0||_fo0||_rn0) save(); bindFI(); renderAll();
+load(); const _bf0=autoBackfill(); const _fo0=autoFixOwners(); const _rn0=autoRestoreNotes(); const _cn0=autoCleanNames(); if(recordSnapshot()||_bf0||_fo0||_rn0||_cn0) save(); bindFI(); renderAll();
 if(requireLogin()){ const g=document.getElementById('authGate'); if(g){ g.style.display='flex'; renderGate(); } }
 if(typeof cloudInit==='function') cloudInit();
 </script>
