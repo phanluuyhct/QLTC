@@ -878,7 +878,7 @@ function currentTxList(){
   const ow=document.getElementById('fOwner')?document.getElementById('fOwner').value:'';
   const sub=document.getElementById('fSubOwner')?document.getElementById('fSubOwner').value:'';
   const owMatch = t => !ow ? true : (ow[0]==='@' ? ownerGroupOf(t.owner)===ow.slice(1) : t.owner===ow);
-  return DB.transactions.filter(t=>(!mo||monthOf(t.date)===mo)&&(!ty||t.type===ty)&&(!ca||t.category===ca)&&(!gr||(t.grp||'SH')===gr)&&(!sr||t.source===sr)&&owMatch(t)&&(!sub||t.owner===sub))
+  return DB.transactions.filter(t=>(!mo||monthOf(t.date)===mo)&&(!ty||t.type===ty)&&(!ca||t.category===ca)&&(!gr||(t.grp||'SH')===gr)&&(!sr||t.source===sr||t.dest===sr)&&owMatch(t)&&(!sub||t.owner===sub))
     .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
 }
 function renderTx(){
@@ -961,7 +961,7 @@ window.editTx=id=>{
       <button data-t="Chuyển" onclick="etSetType('Chuyển')">Chuyển</button></div>
     <div class="field" style="margin-top:12px"><label>Ngày</label><input id="etDate" type="date" value="${t.date}"></div>
     <div class="field"><label>Số tiền (₫)</label><input id="etAmt" type="text" inputmode="numeric" value="${VND.format(parseNum(t.amount))}" oninput="fmtInput(this)"></div>
-    <div class="field"><label>Danh mục</label><select id="etCat"></select></div>
+    <div class="field"><label>Danh mục</label><select id="etCat" onchange="catSelChanged('etCat')"></select></div>
     <div class="field"><label>Nguồn (tài khoản)</label><select id="etSource">${accOpts}</select></div>
     <div class="field"><label>Chủ sở hữu</label>
       <select id="etOwner" onchange="ownerSelChanged('etOwner')">
@@ -977,7 +977,7 @@ window.editTx=id=>{
 };
 function etFillCat(t){ const sel=document.getElementById('etCat');
   if(t==='Chuyển'){ sel.innerHTML='<option>Chuyển nguồn</option>'; return; }
-  sel.innerHTML='<option value="">— Chọn danh mục —</option>'+(DB.categories[t]||[]).map(c=>`<option>${c}</option>`).join(''); }
+  sel.innerHTML='<option value="">— Chọn danh mục —</option>'+(DB.categories[t]||[]).map(c=>`<option>${c}</option>`).join('')+'<option value="__newcat__">➕ Thêm danh mục mới…</option>'; }
 function etTypeUI(t){ document.querySelectorAll('#etSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); }
 window.etSetType=t=>{ window._etType=t; etTypeUI(t); etFillCat(t); };
 window.saveEditTx=id=>{
@@ -987,7 +987,7 @@ window.saveEditTx=id=>{
   const srcId=document.getElementById('etSource').value;
   const srcAcc=srcId?DB.accounts.find(a=>a.id===srcId):null;
   t.type=window._etType; t.date=document.getElementById('etDate').value; t.amount=amt;
-  t.category=document.getElementById('etCat').value; t.source=srcAcc?srcAcc.name:'';
+  let ecv=document.getElementById('etCat').value; if(ecv==='__newcat__')ecv=''; t.category=ecv; t.source=srcAcc?srcAcc.name:'';
   let eov=document.getElementById('etOwner').value; if(eov==='__new__')eov=''; t.owner=eov.trim(); t.note=document.getElementById('etNote').value;
   save(); closeModal(); renderAll();
 };
@@ -1010,7 +1010,7 @@ function renderAssets(){
     if(!accts.length) return;
     html+=`<div class="divlabel">${cls} · ${fmt(cm[cls])}${hid?` <span class="badge">${hid} đã tất toán</span>`:''}</div><table><tbody>`+
       accts.sort((a,b)=>Math.abs(b.value)-Math.abs(a.value)).map(a=>`<tr>
-        <td>${a.name}<div class="mini">${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div></td>
+        <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div></td>
         <td class="num" style="color:${a.value<0?'var(--red)':'var(--txt)'}">${fmt(a.value)}</td>
         <td class="num"><button class="btn sm ghost" onclick="editAcct('${a.id}')">✎</button>
         <button class="btn sm ghost" onclick="delAcct('${a.id}')">✕</button></td></tr>`).join('')+`</tbody></table>`;
@@ -1074,6 +1074,10 @@ window.markToMarket=()=>{
   alert(n? `Đã cập nhật ${n} tài khoản theo giá thị trường.`:'Không tìm thấy tài khoản Vàng/Bạc/USD để cập nhật.');
 };
 window.editAcct=id=>{ const a=DB.accounts.find(x=>x.id===id); acctForm(a); };
+window.showAccountTx=(name)=>{
+  const l=DB.transactions.filter(t=>t.source===name||t.dest===name);
+  showTxList('Giao dịch tài khoản: '+name, l);
+};
 window.delAcct=id=>{ if(confirm('Xóa tài khoản này?')){ DB.accounts=DB.accounts.filter(a=>a.id!==id); save(); renderAll(); } };
 
 /* ================= FI ================= */
@@ -1234,7 +1238,7 @@ window.addTxModal=()=>{
       <button data-t="Chuyển" onclick="setTxType('Chuyển')">Chuyển</button></div>
     <div class="field" style="margin-top:12px"><label>Ngày</label><input id="txDate" type="date" value="${todayISO()}"></div>
     <div class="field"><label>Số tiền (₫)</label><input id="txAmt" type="text" inputmode="numeric" placeholder="0" oninput="fmtInput(this)"></div>
-    <div class="field"><label>Danh mục</label><select id="txCat"></select></div>
+    <div class="field"><label>Danh mục</label><select id="txCat" onchange="catSelChanged('txCat')"></select></div>
     <div class="field"><label id="txSrcLbl">Nguồn chi/thu (tài khoản)</label><select id="txSource" onchange="txSrcChanged()">
       <option value="">— Không chọn —</option>
       ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
@@ -1275,7 +1279,15 @@ window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg bu
 function fillTxCat(t){ const sel=document.getElementById('txCat');
   if(t==='Chuyển'){ sel.innerHTML='<option>Chuyển nguồn</option>'; return; }
   const cats=DB.categories[t]||[];
-  sel.innerHTML='<option value="">— Chọn danh mục —</option>'+cats.map(c=>`<option>${c}</option>`).join(''); }
+  sel.innerHTML='<option value="">— Chọn danh mục —</option>'+cats.map(c=>`<option>${c}</option>`).join('')+'<option value="__newcat__">➕ Thêm danh mục mới…</option>'; }
+window.catSelChanged=(selId)=>{
+  const sel=document.getElementById(selId); if(!sel||sel.value!=='__newcat__') return;
+  const type = selId==='txCat'?window._txType:window._etType;
+  const name=(prompt('Nhập tên danh mục mới ('+type+'):')||'').trim();
+  if(name){ if(!DB.categories[type]) DB.categories[type]=[]; if(!DB.categories[type].includes(name)) DB.categories[type].push(name); save();
+    if(selId==='txCat') fillTxCat(type); else etFillCat(type); sel.value=name; fillCatFilter(); }
+  else sel.value='';
+};
 window.fmtInput=el=>{ const v=parseNum(el.value); el.value= v? VND.format(v):''; };
 window.saveTx=()=>{
   const amt=parseNum(document.getElementById('txAmt').value);
@@ -1297,7 +1309,8 @@ window.saveTx=()=>{
     DB.transactions.push(tx);
   } else {
     let ownv=document.getElementById('txOwner').value; if(ownv==='__new__')ownv='';
-    tx={id:uid(),date,type,category:document.getElementById('txCat').value,amount:amt,
+    let catv=document.getElementById('txCat').value; if(catv==='__newcat__')catv='';
+    tx={id:uid(),date,type,category:catv,amount:amt,
       owner:ownv,source:srcAcc?srcAcc.name:'',note};
     DB.transactions.push(tx);
     if(srcAcc&&affect){ if(type==='Chi') srcAcc.value-=amt; else if(type==='Thu') srcAcc.value+=amt; }
