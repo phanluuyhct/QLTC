@@ -200,12 +200,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
       <button class="btn sm ghost" onclick="transferModal()">⇄ Chuyển / Mua-Bán</button>
       <button class="btn sm ghost" onclick="addAcctModal()">+ Thêm tài khoản</button>
     </div>
+    <div class="row" style="gap:6px;margin:2px 0 10px;flex-wrap:wrap;align-items:center">
+      <span class="mini">Nhóm theo:</span>
+      <button id="gbInst" class="btn sm" onclick="setAcctGroup('inst')">Ngân hàng / Công ty</button>
+      <button id="gbCls" class="btn sm ghost" onclick="setAcctGroup('cls')">Loại tài sản</button>
+      <button class="btn sm ghost" onclick="toggleAllInst()" id="gbExpand" style="margin-left:auto">Mở/Thu tất cả</button>
+    </div>
     <div id="acctList"></div>
-  </div>
-  <div class="card" style="margin-top:14px">
-    <div class="toolbar"><h3 style="margin:0;flex:1">Tổng tài sản theo ngân hàng / công ty chứng khoán</h3></div>
-    <div id="bankGroups"></div>
-    <div class="mini" style="margin-top:8px">Gom các tài khoản cùng một tổ chức (ngân hàng, công ty chứng khoán, bảo hiểm…) và cộng tổng mỗi nhóm. Bấm tên tài khoản để xem giao dịch liên quan.</div>
   </div>
   <div class="card" style="margin-top:14px">
     <div class="toolbar"><h3 style="margin:0;flex:1">Giá thị trường & Lời/Lỗ (Vàng · Bạc · USD)</h3>
@@ -854,6 +855,24 @@ window.showOwnerDetail=group=>{
     <div class="mini" style="margin-bottom:10px">Tổng (sổ Sở hữu): <b style="color:var(--accent)">${fmt(tot)}</b> · ${funds.length} nguồn</div>
     <table><tbody>${funds.map(o=>`<tr><td>${o.name}</td><td class="num" style="color:${o.value<0?'var(--red)':'var(--txt)'}">${fmt(o.value)}</td></tr>`).join('')}</tbody></table>`);
 };
+window.showRosDetail=k=>{
+  const meta=(typeof ROS_META!=='undefined'&&ROS_META[k])||{name:(typeof ROS_OTHER!=='undefined'&&ROS_OTHER[k])||k};
+  const accts=DB.accounts.filter(a=>rosKey(a)===k && a.value!==0).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
+  const tot=accts.reduce((s,a)=>s+a.value,0);
+  // gom theo đơn vị (ngân hàng/công ty) bên trong rổ
+  const byInst={}; accts.forEach(a=>{ const g=institutionOf(a.name); (byInst[g]=byInst[g]||[]).push(a); });
+  const instKeys=Object.keys(byInst).sort((x,y)=>Math.abs(byInst[y].reduce((s,a)=>s+a.value,0))-Math.abs(byInst[x].reduce((s,a)=>s+a.value,0)));
+  const body= accts.length? instKeys.map(g=>{
+    const list=byInst[g]; const sub=list.reduce((s,a)=>s+a.value,0);
+    return `<div class="divlabel" style="display:flex;justify-content:space-between;border-left:3px solid ${instColor(g)};padding-left:8px"><span><b style="color:${instColor(g)}">${g}</b></span><b class="num" style="color:${sub<0?'var(--red)':instColor(g)}">${fmt(sub)}</b></div>
+      <table><tbody>${list.map(a=>`<tr>
+        <td style="cursor:pointer" onclick="closeModal();showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.cls} · ${a.owner}</div></td>
+        <td class="num" style="color:${a.value<0?'var(--red)':'var(--txt)'}">${fmt(a.value)}</td></tr>`).join('')}</tbody></table>`;
+  }).join('') : '<div class="mini">Chưa có tài khoản nào gắn nhãn rổ này.</div>';
+  openModal(`<button class="close" onclick="closeModal()">×</button><h2>${meta.name}</h2>
+    <div class="mini" style="margin-bottom:10px">Tổng: <b style="color:var(--accent)">${fmt(tot)}</b> · ${accts.length} tài khoản · gom theo đơn vị</div>
+    ${body}`);
+};
 window.showMonthDetail=mo=>{
   const list=txInMonth(mo);
   const thu=sumType(list,'Thu'),chi=sumLiving(list),asset=sumAsset(list);
@@ -1043,6 +1062,8 @@ window.saveEditTx=id=>{
 };
 
 /* ================= ASSETS ================= */
+let ACCT_GB='inst';        // 'inst' = gom theo ngân hàng/công ty · 'cls' = theo loại tài sản
+let ACCT_OPEN={};          // trạng thái mở/thu của từng nhóm đơn vị (mặc định mở)
 function renderAssets(){
   const total=assetTotal();
   const debt=DB.accounts.filter(a=>a.value<0).reduce((s,a)=>s+a.value,0);
@@ -1053,18 +1074,33 @@ function renderAssets(){
   const box=document.getElementById('acctList');
   let html='';
   let hiddenTotal=0;
-  CLS_ORDER.forEach(cls=>{
-    const all=DB.accounts.filter(a=>a.cls===cls); if(!all.length)return;
-    const accts=all.filter(a=>a.value!==0);            // ẩn sổ đã tất toán (=0)
-    const hid=all.length-accts.length; hiddenTotal+=hid;
-    if(!accts.length) return;
-    html+=`<div class="divlabel">${cls} · ${fmt(cm[cls])}${hid?` <span class="badge">${hid} đã tất toán</span>`:''}</div><table><tbody>`+
-      accts.sort((a,b)=>Math.abs(b.value)-Math.abs(a.value)).map(a=>`<tr>
-        <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div></td>
-        <td class="num" style="color:${a.value<0?'var(--red)':'var(--txt)'}">${fmt(a.value)}</td>
-        <td class="num"><button class="btn sm ghost" onclick="editAcct('${a.id}')">✎</button>
-        <button class="btn sm ghost" onclick="delAcct('${a.id}')">✕</button></td></tr>`).join('')+`</tbody></table>`;
-  });
+  // Cập nhật trạng thái nút toggle
+  const gi=document.getElementById('gbInst'), gc=document.getElementById('gbCls');
+  if(gi&&gc){ gi.className='btn sm'+(ACCT_GB==='inst'?'':' ghost'); gc.className='btn sm'+(ACCT_GB==='cls'?'':' ghost'); }
+  if(ACCT_GB==='inst'){
+    const groups={};
+    DB.accounts.filter(a=>a.value!==0).forEach(a=>{ const k=institutionOf(a.name); (groups[k]=groups[k]||[]).push(a); });
+    hiddenTotal=DB.accounts.filter(a=>a.value===0).length;
+    const keys=Object.keys(groups).sort((x,y)=>Math.abs(groups[y].reduce((s,a)=>s+a.value,0))-Math.abs(groups[x].reduce((s,a)=>s+a.value,0)));
+    keys.forEach(k=>{
+      const accts=groups[k].slice().sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
+      const sub=accts.reduce((s,a)=>s+a.value,0);
+      const open=ACCT_OPEN[k]!==false; // mặc định mở
+      html+=`<div class="divlabel" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;border-left:3px solid ${instColor(k)};padding-left:8px" onclick="toggleInst('${k.replace(/'/g,"\\'")}')">
+        <span>${open?'▾':'▸'} <b style="color:${instColor(k)};font-size:15px">${k}</b> <span class="mini">· ${accts.length} TK</span></span>
+        <b class="num" style="color:${sub<0?'var(--red)':instColor(k)}">${fmt(sub)}</b></div>`;
+      if(open) html+=`<table><tbody>`+accts.map(accRow).join('')+`</tbody></table>`;
+    });
+  } else {
+    CLS_ORDER.forEach(cls=>{
+      const all=DB.accounts.filter(a=>a.cls===cls); if(!all.length)return;
+      const accts=all.filter(a=>a.value!==0);            // ẩn sổ đã tất toán (=0)
+      const hid=all.length-accts.length; hiddenTotal+=hid;
+      if(!accts.length) return;
+      html+=`<div class="divlabel">${cls} · ${fmt(cm[cls])}${hid?` <span class="badge">${hid} đã tất toán</span>`:''}</div><table><tbody>`+
+        accts.sort((a,b)=>Math.abs(b.value)-Math.abs(a.value)).map(accRow).join('')+`</tbody></table>`;
+    });
+  }
   if(hiddenTotal) html+=`<div class="mini" style="margin-top:10px">Đã ẩn ${hiddenTotal} sổ/tài khoản có số dư 0 (đã tất toán). Chúng vẫn được giữ lại trong lịch sử.</div>`;
   box.innerHTML=html;
   renderPrices();
@@ -1074,8 +1110,8 @@ function renderAssets(){
   const base=['Rổ 1','Rổ 2','Rổ 3','Rổ 4'].reduce((s,k)=>s+Math.max(0,rsum[k]||0),0);
   let taHtml=Object.keys(ROS_META).map(k=>{
     const m=ROS_META[k]; const cur=Math.max(0,rsum[k]||0); const curp= base? cur/base*100:0; const diff=curp-m.t;
-    return `<div style="margin:11px 0">
-      <div class="row" style="justify-content:space-between"><span>${m.name}</span>
+    return `<div style="margin:11px 0;cursor:pointer" onclick="showRosDetail('${k}')">
+      <div class="row" style="justify-content:space-between"><span>${m.name} <span style="color:var(--accent2)">›</span></span>
       <span class="mini">hiện <b>${curp.toFixed(1)}%</b> / mục tiêu ${m.t}%
       <span class="pill ${diff>2?'up':diff<-2?'down':''}" style="${Math.abs(diff)<=2?'background:var(--panel2);color:var(--muted)':''}">${diff>=0?'+':''}${diff.toFixed(1)}%</span></span></div>
       <div class="bar" style="position:relative"><span style="width:${Math.min(100,curp)}%;background:${m.color}"></span>
@@ -1083,11 +1119,44 @@ function renderAssets(){
       <div class="mini" style="text-align:right">${fmt(cur)}</div></div>`;
   }).join('');
   Object.keys(ROS_OTHER).forEach(k=>{ if(rsum[k]!==undefined){
-    taHtml+=`<div class="row" style="justify-content:space-between;margin:8px 0;color:var(--muted)"><span>${ROS_OTHER[k]}</span><span class="mini">${fmt(rsum[k])} · ngoài khung 100%</span></div>`; }});
+    taHtml+=`<div class="row" style="justify-content:space-between;margin:8px 0;color:var(--muted);cursor:pointer" onclick="showRosDetail('${k}')"><span>${ROS_OTHER[k]} <span style="color:var(--accent2)">›</span></span><span class="mini">${fmt(rsum[k])} · ngoài khung 100%</span></div>`; }});
   ta.innerHTML=taHtml;
-  renderInstitutions();
 }
+/* Một dòng tài khoản (dùng chung cho cả 2 kiểu gom nhóm) */
+function accRow(a){
+  return `<tr>
+    <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.cls} · ${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div></td>
+    <td class="num" style="color:${a.value<0?'var(--red)':'var(--txt)'}">${fmt(a.value)}</td>
+    <td class="num"><button class="btn sm ghost" onclick="event.stopPropagation();editAcct('${a.id}')">✎</button>
+    <button class="btn sm ghost" onclick="event.stopPropagation();delAcct('${a.id}')">✕</button></td></tr>`;
+}
+window.setAcctGroup=(g)=>{ ACCT_GB=g; renderAssets(); };
+window.toggleInst=(k)=>{ ACCT_OPEN[k]=(ACCT_OPEN[k]===false); renderAssets(); };
+window.toggleAllInst=()=>{
+  const groups=[...new Set(DB.accounts.filter(a=>a.value!==0).map(a=>institutionOf(a.name)))];
+  const anyOpen=groups.some(k=>ACCT_OPEN[k]!==false);
+  groups.forEach(k=>ACCT_OPEN[k]=anyOpen?false:true); // đang mở -> thu hết; đang thu -> mở hết
+  if(ACCT_GB!=='inst')ACCT_GB='inst';
+  renderAssets();
+};
 /* ===== Gom nhóm theo ngân hàng / công ty chứng khoán ===== */
+const INST_COLOR={
+  'DragonX (Dragon Capital)':'#4f9cf9',
+  'VCBS · Chứng khoán Vietcombank':'#12b886',
+  'Vietcombank':'#2f9e44',
+  'MB · Ngân hàng & Chứng khoán':'#5c7cfa',
+  'Techcombank / TCBS':'#f76707',
+  'BIDV':'#e64980',
+  'Manulife · Bảo hiểm nhân thọ':'#20c997',
+  'Generali · Bảo hiểm nhân thọ':'#fa5252',
+  'HSBC':'#ff6b6b',
+  'VPBank':'#22b8cf',
+  'Vàng & Bạc':'#e0b64a',
+  'Ngoại tệ (USD)':'#66d9e8',
+  'Tiền mặt':'#fcc419',
+  'Khác':'#adb5bd'
+};
+function instColor(k){ return INST_COLOR[k]||'#9db4c8'; }
 function institutionOf(name){
   const n=String(name||'').toLowerCase();
   if(n.includes('dragonx')||n.includes('dcds')||n.includes('dcbf')||n.includes('dcba')) return 'DragonX (Dragon Capital)';
