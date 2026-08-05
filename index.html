@@ -941,8 +941,10 @@ function buildMonthFilter(){
 }
 function fillCatFilter(){
   const sel=document.getElementById('fCat');
-  const all=[...(DB.categories.Thu||[]),...(DB.categories.Chi||[])];
-  sel.innerHTML='<option value="">Tất cả danh mục</option>'+[...new Set(all)].map(c=>`<option>${c}</option>`).join('');
+  const curCat=sel.value;   // giữ lựa chọn danh mục đang lọc, không để reset
+  const all=[...(DB.categories.Thu||[]),...(DB.categories.Chi||[]),...DB.transactions.map(t=>t.category).filter(Boolean)];
+  sel.innerHTML='<option value="">Tất cả danh mục</option>'+[...new Set(all)].sort((a,b)=>a.localeCompare(b,'vi')).map(c=>`<option>${c}</option>`).join('');
+  sel.value=curCat;
   const ss=document.getElementById('fSrc');
   if(ss){ const cur=ss.value;
     const srcs=[...new Set([...DB.accounts.map(a=>a.name),...DB.transactions.map(t=>t.source).filter(Boolean)])].sort();
@@ -1137,7 +1139,11 @@ function renderAssets(){
     hiddenTotal=DB.accounts.filter(a=>a.value===0).length;
     const keys=Object.keys(groups).sort((x,y)=>Math.abs(groups[y].reduce((s,a)=>s+a.value,0))-Math.abs(groups[x].reduce((s,a)=>s+a.value,0)));
     keys.forEach(k=>{
-      const accts=groups[k].slice().sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
+      const accts=groups[k].slice().sort((a,b)=>{
+        const pa=a.cls==='Thanh toán'?0:1, pb=b.cls==='Thanh toán'?0:1;   // TK thanh toán lên đầu
+        if(pa!==pb) return pa-pb;
+        return Math.abs(b.value)-Math.abs(a.value);
+      });
       const sub=accts.reduce((s,a)=>s+a.value,0);
       const open=ACCT_OPEN[k]!==false; // mặc định mở
       html+=`<div class="divlabel" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;border-left:3px solid ${instColor(k)};padding-left:8px" onclick="toggleInst('${k.replace(/'/g,"\\'")}')">
@@ -1778,7 +1784,7 @@ function accountGroups(){
     ? Object.keys(g).sort((x,y)=>Math.abs(g[y].reduce((s,a)=>s+a.value,0))-Math.abs(g[x].reduce((s,a)=>s+a.value,0)))
     : CLS_ORDER.filter(c=>g[c]);
   return order.map(k=>({label:k, color:(ACCT_GB==='inst')?instColor(k):(CLS_COLOR[k]||'#888'),
-    accts:g[k].slice().sort((a,b)=>Math.abs(b.value)-Math.abs(a.value)), sub:g[k].reduce((s,a)=>s+a.value,0)}));
+    accts:g[k].slice().sort((a,b)=>{ if(ACCT_GB==='inst'){ const pa=a.cls==='Thanh toán'?0:1,pb=b.cls==='Thanh toán'?0:1; if(pa!==pb)return pa-pb; } return Math.abs(b.value)-Math.abs(a.value); }), sub:g[k].reduce((s,a)=>s+a.value,0)}));
 }
 window.exportAccountsXLSX=()=>{
   if(typeof XLSX==='undefined'){ alert('Chưa tải được thư viện Excel — kiểm tra mạng rồi thử lại.'); return; }
