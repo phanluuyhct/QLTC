@@ -963,7 +963,10 @@ window.editTx=id=>{
     <div class="field"><label>Số tiền (₫)</label><input id="etAmt" type="text" inputmode="numeric" value="${VND.format(parseNum(t.amount))}" oninput="fmtInput(this)"></div>
     <div class="field"><label>Danh mục</label><select id="etCat"></select></div>
     <div class="field"><label>Nguồn (tài khoản)</label><select id="etSource">${accOpts}</select></div>
-    <div class="field"><label>Chủ sở hữu</label><input id="etOwner" value="${(t.owner||'').replace(/"/g,'&quot;')}" list="etOwnerList"><datalist id="etOwnerList">${owners.map(o=>`<option>${o}</option>`).join('')}</datalist></div>
+    <div class="field"><label>Chủ sở hữu</label>
+      <select id="etOwner" onchange="ownerSelChanged('etOwner')">
+        ${(owners.includes(t.owner)||!t.owner?owners:[t.owner,...owners]).map(o=>`<option ${o===(t.owner||'Cá nhân')?'selected':''}>${o}</option>`).join('')}
+        <option value="__new__">➕ Thêm chủ sở hữu mới…</option></select></div>
     <div class="field"><label>Nội dung / ghi chú</label><input id="etNote" value="${(t.note||'').replace(/"/g,'&quot;')}"></div>
     <button class="btn" style="width:100%" onclick="saveEditTx('${id}')">Lưu thay đổi</button>
     <p class="mini" style="margin-top:8px">Sửa giao dịch chỉ đổi thông tin, không tự điều chỉnh số dư tài khoản. Nếu đổi số tiền/nguồn, hãy chỉnh số dư ở tab Tài sản nếu cần.</p>`);
@@ -985,7 +988,7 @@ window.saveEditTx=id=>{
   const srcAcc=srcId?DB.accounts.find(a=>a.id===srcId):null;
   t.type=window._etType; t.date=document.getElementById('etDate').value; t.amount=amt;
   t.category=document.getElementById('etCat').value; t.source=srcAcc?srcAcc.name:'';
-  t.owner=document.getElementById('etOwner').value.trim(); t.note=document.getElementById('etNote').value;
+  let eov=document.getElementById('etOwner').value; if(eov==='__new__')eov=''; t.owner=eov.trim(); t.note=document.getElementById('etNote').value;
   save(); closeModal(); renderAll();
 };
 
@@ -1239,17 +1242,32 @@ window.addTxModal=()=>{
       <option value="">— Chọn —</option>
       ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
     <label class="row mini" style="margin:-4px 0 12px;cursor:pointer"><input type="checkbox" id="txAffect" checked style="width:auto">&nbsp;Tự cập nhật số dư tài khoản</label>
-    <div class="field"><label>Chủ sở hữu <span class="mini">(gõ tên mới nếu muốn thêm)</span></label>
-      <input id="txOwner" list="txOwnerList" value="Cá nhân" placeholder="Cá nhân, Quỹ NCKH…">
-      <datalist id="txOwnerList">${allOwners().map(o=>`<option>${o}</option>`).join('')}</datalist></div>
+    <div class="field"><label>Chủ sở hữu</label>
+      <select id="txOwner" onchange="ownerSelChanged('txOwner')">
+        ${allOwners().map(o=>`<option ${o==='Cá nhân'?'selected':''}>${o}</option>`).join('')}
+        <option value="__new__">➕ Thêm chủ sở hữu mới…</option></select></div>
     <div class="field"><label>Nội dung / ghi chú</label><input id="txNote" placeholder="VD: Siêu thị, học phí T9..."></div>
     <button class="btn" style="width:100%" onclick="saveTx()">Lưu giao dịch</button>`);
   window._txType='Chi'; fillTxCat('Chi');
   // Tự điền nguồn theo bộ lọc "nguồn" đang chọn ở tab Giao dịch
   const fs=document.getElementById('fSrc'); const curSrc=fs?fs.value:'';
   if(curSrc){ const acc=DB.accounts.find(a=>a.name===curSrc); if(acc){ const sel=document.getElementById('txSource'); if(sel){ sel.value=acc.id; txSrcChanged(); } } }
+  // Tự điền chủ sở hữu theo bộ lọc sở hữu/quỹ đang chọn (ưu tiên hơn nguồn)
+  presetOwnerFromFilter('txOwner');
 };
-window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if(o) o.value=a.owner; } };
+function presetOwnerFromFilter(selId){
+  const fsub=document.getElementById('fSubOwner'), fown=document.getElementById('fOwner');
+  let po='';
+  if(fsub&&fsub.value) po=fsub.value;
+  else if(fown&&fown.value&&fown.value[0]!=='@') po=fown.value;
+  else if(fown&&fown.value==='@Cá nhân') po='Cá nhân';
+  if(!po) return;
+  const os=document.getElementById(selId); if(!os) return;
+  if(![...os.options].some(o=>o.value===po||o.text===po)){ const opt=document.createElement('option'); opt.textContent=po; os.insertBefore(opt, os.querySelector('option[value="__new__"]')); }
+  os.value=po;
+}
+window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if(o&&[...o.options].some(x=>x.value===a.owner)) o.value=a.owner; } };
+window.ownerSelChanged=(id)=>{ const sel=document.getElementById(id); if(!sel)return; if(sel.value==='__new__'){ const name=(prompt('Nhập tên chủ sở hữu mới:')||'').trim(); if(name){ const opt=document.createElement('option'); opt.textContent=name; opt.value=name; sel.insertBefore(opt, sel.querySelector('option[value="__new__"]')); sel.value=name; } else { sel.value='Cá nhân'; } } };
 window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); fillTxCat(t);
   const dw=document.getElementById('txDestWrap'), sl=document.getElementById('txSrcLbl');
   if(dw&&sl){ if(t==='Chuyển'){ dw.style.display='block'; sl.textContent='Từ tài khoản (nguồn — giảm)'; } else { dw.style.display='none'; sl.textContent='Nguồn chi/thu (tài khoản)'; } }
@@ -1278,8 +1296,9 @@ window.saveTx=()=>{
       owner:srcAcc.owner,source:srcAcc.name,dest:destAcc.name,note:(note?note+' · ':'')+srcAcc.name+' → '+destAcc.name};
     DB.transactions.push(tx);
   } else {
+    let ownv=document.getElementById('txOwner').value; if(ownv==='__new__')ownv='';
     tx={id:uid(),date,type,category:document.getElementById('txCat').value,amount:amt,
-      owner:document.getElementById('txOwner').value,source:srcAcc?srcAcc.name:'',note};
+      owner:ownv,source:srcAcc?srcAcc.name:'',note};
     DB.transactions.push(tx);
     if(srcAcc&&affect){ if(type==='Chi') srcAcc.value-=amt; else if(type==='Thu') srcAcc.value+=amt; }
   }
