@@ -860,6 +860,15 @@ function fillCatFilter(){
   }
 }
 function ownerGroupOf(owner){ return (typeof OWNER_GROUP!=='undefined'&&OWNER_GROUP[owner])||''; }
+/* Toàn bộ danh mục chủ sở hữu (gồm cả các quỹ trong sheet SoHữu chưa phát sinh giao dịch) */
+function allOwners(){
+  const s=new Set();
+  if(typeof OWNER_MAP!=='undefined') Object.values(OWNER_MAP).forEach(v=>s.add(v));
+  if(typeof OWNER_GROUP!=='undefined') Object.keys(OWNER_GROUP).forEach(v=>s.add(v));
+  (DB.accounts||[]).forEach(a=>a.owner&&s.add(a.owner));
+  (DB.transactions||[]).forEach(t=>t.owner&&s.add(t.owner));
+  return [...s].sort((a,b)=>a.localeCompare(b,'vi'));
+}
 function currentTxList(){
   const mo=document.getElementById('fMonth').value;
   const ty=document.getElementById('fType').value;
@@ -939,7 +948,45 @@ window.showTxDetail=id=>{
     ${t.dest?`<div class="kv"><span>Đến tài khoản</span><b>${t.dest}</b></div>`:''}
     <div class="kv"><span>Chủ sở hữu</span><b>${t.owner||'—'}</b></div>
     <div class="kv"><span>Nội dung</span><b style="max-width:60%;text-align:right">${t.note||'—'}</b></div>
-    <div class="row" style="margin-top:16px"><button class="btn red" style="flex:1" onclick="delTx('${t.id}');closeModal()">Xóa giao dịch</button></div>`);
+    <div class="row" style="margin-top:16px"><button class="btn" style="flex:1" onclick="editTx('${t.id}')">✎ Sửa</button><button class="btn red" style="flex:1" onclick="if(confirm('Xóa giao dịch này?')){delTx('${t.id}');closeModal();}">🗑 Xóa</button></div>`);
+};
+window.editTx=id=>{
+  const t=DB.transactions.find(x=>x.id===id); if(!t)return;
+  const accOpts='<option value="">— Không chọn —</option>'+DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('');
+  const owners=allOwners();
+  openModal(`<button class="close" onclick="closeModal()">×</button><h2>Sửa giao dịch</h2>
+    <div class="seg" id="etSeg">
+      <button data-t="Chi" onclick="etSetType('Chi')">Chi</button>
+      <button data-t="Thu" onclick="etSetType('Thu')">Thu</button>
+      <button data-t="Chuyển" onclick="etSetType('Chuyển')">Chuyển</button></div>
+    <div class="field" style="margin-top:12px"><label>Ngày</label><input id="etDate" type="date" value="${t.date}"></div>
+    <div class="field"><label>Số tiền (₫)</label><input id="etAmt" type="text" inputmode="numeric" value="${VND.format(parseNum(t.amount))}" oninput="fmtInput(this)"></div>
+    <div class="field"><label>Danh mục</label><select id="etCat"></select></div>
+    <div class="field"><label>Nguồn (tài khoản)</label><select id="etSource">${accOpts}</select></div>
+    <div class="field"><label>Chủ sở hữu</label><input id="etOwner" value="${(t.owner||'').replace(/"/g,'&quot;')}" list="etOwnerList"><datalist id="etOwnerList">${owners.map(o=>`<option>${o}</option>`).join('')}</datalist></div>
+    <div class="field"><label>Nội dung / ghi chú</label><input id="etNote" value="${(t.note||'').replace(/"/g,'&quot;')}"></div>
+    <button class="btn" style="width:100%" onclick="saveEditTx('${id}')">Lưu thay đổi</button>
+    <p class="mini" style="margin-top:8px">Sửa giao dịch chỉ đổi thông tin, không tự điều chỉnh số dư tài khoản. Nếu đổi số tiền/nguồn, hãy chỉnh số dư ở tab Tài sản nếu cần.</p>`);
+  window._etType=t.type; etFillCat(t.type);
+  document.getElementById('etCat').value=t.category||'';
+  const acc=DB.accounts.find(a=>a.name===t.source); if(acc)document.getElementById('etSource').value=acc.id;
+  etTypeUI(t.type);
+};
+function etFillCat(t){ const sel=document.getElementById('etCat');
+  if(t==='Chuyển'){ sel.innerHTML='<option>Chuyển nguồn</option>'; return; }
+  sel.innerHTML='<option value="">— Chọn danh mục —</option>'+(DB.categories[t]||[]).map(c=>`<option>${c}</option>`).join(''); }
+function etTypeUI(t){ document.querySelectorAll('#etSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); }
+window.etSetType=t=>{ window._etType=t; etTypeUI(t); etFillCat(t); };
+window.saveEditTx=id=>{
+  const t=DB.transactions.find(x=>x.id===id); if(!t)return;
+  const amt=parseNum(document.getElementById('etAmt').value);
+  if(!amt){ alert('Nhập số tiền.'); return; }
+  const srcId=document.getElementById('etSource').value;
+  const srcAcc=srcId?DB.accounts.find(a=>a.id===srcId):null;
+  t.type=window._etType; t.date=document.getElementById('etDate').value; t.amount=amt;
+  t.category=document.getElementById('etCat').value; t.source=srcAcc?srcAcc.name:'';
+  t.owner=document.getElementById('etOwner').value.trim(); t.note=document.getElementById('etNote').value;
+  save(); closeModal(); renderAll();
 };
 
 /* ================= ASSETS ================= */
@@ -1192,8 +1239,9 @@ window.addTxModal=()=>{
       <option value="">— Chọn —</option>
       ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
     <label class="row mini" style="margin:-4px 0 12px;cursor:pointer"><input type="checkbox" id="txAffect" checked style="width:auto">&nbsp;Tự cập nhật số dư tài khoản</label>
-    <div class="field"><label>Chủ sở hữu</label><select id="txOwner">
-      ${[...new Set(DB.accounts.map(a=>a.owner))].map(o=>`<option>${o}</option>`).join('')}</select></div>
+    <div class="field"><label>Chủ sở hữu <span class="mini">(gõ tên mới nếu muốn thêm)</span></label>
+      <input id="txOwner" list="txOwnerList" value="Cá nhân" placeholder="Cá nhân, Quỹ NCKH…">
+      <datalist id="txOwnerList">${allOwners().map(o=>`<option>${o}</option>`).join('')}</datalist></div>
     <div class="field"><label>Nội dung / ghi chú</label><input id="txNote" placeholder="VD: Siêu thị, học phí T9..."></div>
     <button class="btn" style="width:100%" onclick="saveTx()">Lưu giao dịch</button>`);
   window._txType='Chi'; fillTxCat('Chi');
@@ -1201,12 +1249,15 @@ window.addTxModal=()=>{
   const fs=document.getElementById('fSrc'); const curSrc=fs?fs.value:'';
   if(curSrc){ const acc=DB.accounts.find(a=>a.name===curSrc); if(acc){ const sel=document.getElementById('txSource'); if(sel){ sel.value=acc.id; txSrcChanged(); } } }
 };
-window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if([...o.options].some(x=>x.value===a.owner)) o.value=a.owner; } };
+window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if(o) o.value=a.owner; } };
 window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); fillTxCat(t);
   const dw=document.getElementById('txDestWrap'), sl=document.getElementById('txSrcLbl');
   if(dw&&sl){ if(t==='Chuyển'){ dw.style.display='block'; sl.textContent='Từ tài khoản (nguồn — giảm)'; } else { dw.style.display='none'; sl.textContent='Nguồn chi/thu (tài khoản)'; } }
 };
-function fillTxCat(t){ const sel=document.getElementById('txCat'); const cats= t==='Chuyển'?['Chuyển nguồn']:(DB.categories[t]||[]); sel.innerHTML=cats.map(c=>`<option>${c}</option>`).join(''); }
+function fillTxCat(t){ const sel=document.getElementById('txCat');
+  if(t==='Chuyển'){ sel.innerHTML='<option>Chuyển nguồn</option>'; return; }
+  const cats=DB.categories[t]||[];
+  sel.innerHTML='<option value="">— Chọn danh mục —</option>'+cats.map(c=>`<option>${c}</option>`).join(''); }
 window.fmtInput=el=>{ const v=parseNum(el.value); el.value= v? VND.format(v):''; };
 window.saveTx=()=>{
   const amt=parseNum(document.getElementById('txAmt').value);
