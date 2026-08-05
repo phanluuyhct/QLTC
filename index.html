@@ -504,7 +504,7 @@ async function cloudInit(){
   }catch(e){ CLOUD.status='local'; }
   updateSyncBadge(); renderData(); applyGate();
 }
-async function cloudPull(){
+async function cloudPull(force){
   if(!cloudReady()) return;
   try{
     CLOUD.status='syncing'; updateSyncBadge();
@@ -512,10 +512,10 @@ async function cloudPull(){
     if(error) throw error;
     if(data&&data.data){
       const dirty=store.get(KEY+'_dirty')==='1';
-      if(dirty){ // Local có thay đổi chưa kịp đẩy -> giữ local, đẩy lên, không để cloud cũ ghi đè
+      if(dirty && !force){ // Local có thay đổi chưa kịp đẩy -> giữ local, đẩy lên, không để cloud cũ ghi đè
         bindFI(); renderAll(); cloudSchedulePush();
-      } else {
-        DB=data.data; const bf=autoBackfill(); const fo=autoFixOwners(); const rn=autoRestoreNotes(); const cn=autoCleanNames(); store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); if(bf||fo||rn||cn) cloudSchedulePush();
+      } else { // force = người dùng chủ động tải từ đám mây -> lấy bản đám mây làm chuẩn
+        DB=data.data; store.set(KEY+'_dirty',''); const bf=autoBackfill(); const fo=autoFixOwners(); const rn=autoRestoreNotes(); const cn=autoCleanNames(); store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); if(bf||fo||rn||cn) cloudSchedulePush();
       }
     }
     else { await cloudPush(true); }   // first time: đẩy dữ liệu local lên
@@ -663,7 +663,7 @@ window.gsPushAll=async()=>{
   alert('Đã gửi '+sent+' giao dịch lên Google Sheet.');
 };
 window.cloudForcePush=async()=>{ await cloudPush(); alert('Đã đẩy dữ liệu thiết bị này lên đám mây.'); };
-window.cloudForcePull=async()=>{ if(confirm('Tải dữ liệu từ đám mây, ghi đè dữ liệu trên thiết bị này?')){ await cloudPull(); } };
+window.cloudForcePull=async()=>{ if(confirm('Tải dữ liệu từ đám mây, ghi đè dữ liệu trên thiết bị này?')){ await cloudPull(true); alert('Đã tải dữ liệu mới nhất từ đám mây.'); } };
 function updateSyncBadge(){
   const el=document.getElementById('syncBadge'); if(!el) return;
   const m={local:'· lưu cục bộ',configured:'· ☁️ chưa đăng nhập',synced:'· ☁️ đã đồng bộ',syncing:'· ☁️ đang đồng bộ…',error:'· ⚠️ lỗi đồng bộ'};
@@ -760,6 +760,17 @@ function renderDash(){
   renderMaturity(); renderTrend();
 }
 
+/* Tạo link "Thêm vào Lịch Google" cho một sổ có ngày đáo hạn (sự kiện cả ngày, kèm số dư/lãi suất) */
+function gcalMaturityLink(a){
+  if(!a.daohan) return '';
+  const start=a.daohan.replace(/-/g,'');
+  const [y,m,d]=a.daohan.split('-').map(Number);
+  const nd=new Date(y,m-1,d+1); const p=n=>String(n).padStart(2,'0');
+  const end=nd.getFullYear()+p(nd.getMonth()+1)+p(nd.getDate());
+  const title=encodeURIComponent('Đáo hạn sổ: '+a.name);
+  const det=encodeURIComponent('Số dư: '+fmt(a.value)+(a.laisuat?' · lãi suất '+a.laisuat+'%/năm':'')+(a.soTK?' · Số sổ: '+a.soTK:'')+'\n(Nhắc từ app Quản lý Chi Thu)');
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${det}`;
+}
 /* ===== Nhắc đáo hạn sổ tiết kiệm ===== */
 function renderMaturity(){
   const el=document.getElementById('maturityBanner'); if(!el) return;
@@ -773,8 +784,11 @@ function renderMaturity(){
     <h3 style="color:var(--amber)">🔔 Sổ tiết kiệm sắp/đã đáo hạn (${soon.length})</h3>
     ${soon.map(a=>{const lbl=a.days<0?`quá hạn ${-a.days} ngày`:a.days===0?'đáo hạn hôm nay':`còn ${a.days} ngày`;
       const col=a.days<0?'var(--red)':a.days<=7?'var(--amber)':'var(--muted)';
-      return `<div class="kv"><span>${a.name} <span class="mini">· ${a.owner}${a.laisuat?' · '+a.laisuat+'%/năm':''}</span></span>
-      <span><b>${fmt(a.value)}</b> <span style="color:${col}">· ${lbl} (${a.daohan.split('-').reverse().join('/')})</span></span></div>`;}).join('')}</div>`;
+      return `<div style="padding:8px 0;border-bottom:1px dashed var(--line)">
+        <div class="row" style="justify-content:space-between"><span>${a.name} <span class="mini">· ${a.owner}${a.laisuat?' · '+a.laisuat+'%/năm':''}</span></span>
+        <span><b>${fmt(a.value)}</b> <span style="color:${col}">· ${lbl} (${a.daohan.split('-').reverse().join('/')})</span></span></div>
+        <a href="${gcalMaturityLink(a)}" target="_blank" rel="noopener" class="btn sm ghost" style="margin-top:6px;padding:4px 10px;font-size:12px;text-decoration:none;display:inline-block">📅 Thêm vào Lịch Google</a></div>`;}).join('')}
+    <div class="mini" style="margin-top:8px">Bấm "Thêm vào Lịch Google" để tạo sự kiện đúng ngày đáo hạn — mở trên điện thoại sẽ vào ngay Lịch Google, anh bấm Lưu và đặt báo trước (vd 3 ngày) là xong.</div></div>`;
 }
 
 /* ===== Xu hướng tài sản theo thời gian (nhiều đường, tích chọn) ===== */
@@ -1252,8 +1266,9 @@ function accRow(a){
       creditHtml=`<div class="mini" style="margin-top:5px;color:var(--amber);cursor:pointer" onclick="event.stopPropagation();editAcct('${a.id}')">＋ Chưa đặt hạn mức — bấm để nhập hạn mức thẻ</div>`;
     }
   }
+  const calHtml = a.daohan ? `<a href="${gcalMaturityLink(a)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="mini" style="color:var(--amber);text-decoration:none;margin-top:2px;display:inline-block">📅 Nhắc đáo hạn ${a.daohan.split('-').reverse().join('/')}</a>` : '';
   return `<tr>
-    <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.cls} · ${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div>${creditHtml}</td>
+    <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.cls} · ${a.owner}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div>${calHtml}${creditHtml}</td>
     <td class="num" style="color:${a.value<0?'var(--red)':'var(--txt)'}">${fmt(a.value)}</td>
     <td class="num"><button class="btn sm ghost" onclick="event.stopPropagation();editAcct('${a.id}')">✎</button>
     <button class="btn sm ghost" onclick="event.stopPropagation();delAcct('${a.id}')">✕</button></td></tr>`;
