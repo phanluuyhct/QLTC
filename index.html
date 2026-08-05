@@ -15,7 +15,8 @@
   --radius:16px; --shadow:0 6px 24px rgba(0,0,0,.28);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);color:var(--txt);font-size:15px;line-height:1.5}
+html{overflow-x:clip}
+body{margin:0;font-family:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);color:var(--txt);font-size:15px;line-height:1.5;overflow-x:clip}
 h1,h2,h3{margin:0 0 .4em;font-weight:600}
 a{color:var(--accent2)}
 .wrap{max-width:1080px;margin:0 auto;padding:0 14px 120px}
@@ -31,15 +32,17 @@ header{position:sticky;top:0;z-index:50;background:linear-gradient(180deg,#0f172
 .view.active{display:block}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
 .grid{display:grid;gap:14px}
+.grid>*{min-width:0}
 .g2{grid-template-columns:1fr 1fr}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:760px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}.g3 .full,.g4 .full{grid-column:1/-1}}
 @media(max-width:480px){.g3,.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:360px){.wrap{padding:0 10px 120px}.card{padding:13px}th,td{padding:8px 5px}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
 .card h3{font-size:14px;color:var(--muted);font-weight:500;letter-spacing:.02em}
-.stat{font-size:clamp(20px,5vw,30px);font-weight:700;letter-spacing:-.01em}
-.stat.sm{font-size:20px}
+.stat{font-size:clamp(18px,4.6vw,30px);font-weight:700;letter-spacing:-.01em;overflow-wrap:anywhere}
+.stat.sm{font-size:clamp(16px,4.2vw,20px)}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
 .pill.up{background:rgba(55,194,168,.15);color:var(--green)}
 .pill.down{background:rgba(240,102,95,.15);color:var(--red)}
@@ -70,6 +73,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .seg button.on{background:var(--accent);color:#08131b}
 .bar{height:8px;border-radius:6px;background:var(--panel2);overflow:hidden}
 .bar>span{display:block;height:100%;border-radius:6px}
+.txtable{table-layout:fixed;width:100%}
+.txtable td:first-child,.txtable th:first-child{width:auto;word-break:break-word;overflow-wrap:anywhere}
+.txtable td.num,.txtable th.num{width:auto;white-space:nowrap}
+.txtable td.num:last-child,.txtable th:last-child{width:44px}
 .chartbox{position:relative;height:230px}
 .chartbox.tall{height:280px}
 .legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:10px;font-size:13px}
@@ -180,7 +187,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
       <button class="btn sm ghost" onclick="exportFilteredXLSX()">⬇ Excel (lọc)</button>
       <button class="btn sm ghost" onclick="printFiltered()">🖨 In</button>
     </div>
-    <div id="txTableWrap"></div>
+    <div id="txTableWrap" style="overflow-x:auto"></div>
   </div>
   <div class="card" style="margin-top:14px">
     <h3>Chi tiêu theo danh mục (kỳ đang xem)</h3>
@@ -1021,12 +1028,16 @@ function renderTx(){
   else{
     const CAP=400; const shown=list.slice(0,CAP);
     wrap.innerHTML=(list.length>CAP?`<div class="mini" style="margin-bottom:8px">Hiển thị ${CAP}/${list.length} giao dịch gần nhất. Lọc theo tháng để xem đầy đủ.</div>`:'')+
-    `<table><thead><tr><th>Ngày</th><th>Loại</th><th>Danh mục</th><th>Nguồn</th><th>Sở hữu</th><th>Nội dung</th><th class="num">Số tiền</th><th></th></tr></thead><tbody>`+
+    `<table class="txtable"><thead><tr><th>Giao dịch</th><th class="num">Số tiền</th><th></th></tr></thead><tbody>`+
     shown.map(t=>{const cls=t.type==='Thu'?'thu':t.type==='Chi'?'chi':'chuyen';
       const lbl=t.type==='Chi'&&t.grp==='TS'?'Mua TS':t.type;
-      return `<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')"><td>${t.date.slice(8)}/${t.date.slice(5,7)}</td><td><span class="tag ${cls}">${lbl}</span></td>
-      <td>${t.category||''}</td><td class="mini" style="color:var(--accent2)">${t.source||''}${t.dest?`<div class="mini muted">→ ${t.dest}</div>`:''}</td><td class="mini">${t.owner||''}</td><td class="mini">${t.note||''}</td>
-      <td class="num" style="color:${t.type==='Chi'?'var(--red)':t.type==='Thu'?'var(--green)':'var(--txt)'}">${t.type==='Chi'?'-':''}${fmt(parseNum(t.amount))}</td>
+      const src=t.source?`${t.source}${t.dest?' → '+t.dest:''}`:'';
+      const line2=[t.owner||'', t.note||''].filter(Boolean).join(' · ');
+      return `<tr style="cursor:pointer" onclick="showTxDetail('${t.id}')">
+      <td><div class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><b style="white-space:nowrap">${t.date.slice(8)}/${t.date.slice(5,7)}</b><span class="tag ${cls}">${lbl}</span><span style="overflow:hidden;text-overflow:ellipsis">${t.category||'—'}</span></div>
+        ${src?`<div class="mini" style="color:var(--accent2)">◦ ${src}</div>`:''}
+        ${line2?`<div class="mini">${line2}</div>`:''}</td>
+      <td class="num" style="color:${t.type==='Chi'?'var(--red)':t.type==='Thu'?'var(--green)':'var(--txt)'};white-space:nowrap">${t.type==='Chi'?'-':''}${fmt(parseNum(t.amount))}</td>
       <td class="num"><button class="btn sm ghost" onclick="event.stopPropagation();delTx('${t.id}')">✕</button></td></tr>`;}).join('')+`</tbody></table>`;
   }
   // category breakdown (chi only)
@@ -1722,6 +1733,10 @@ function acctForm(a){
     <div class="field"><label>Lớp tài sản</label><select id="acCls">${CLS_ORDER.map(c=>`<option ${a&&a.cls===c?'selected':''}>${c}</option>`).join('')}</select></div>
     <div class="field"><label>Tên tài khoản</label><input id="acName" value="${a?a.name:''}" placeholder="VD: VCBS, HD bank ...123"></div>
     <div class="field"><label>Chủ sở hữu</label><input id="acOwner" value="${a?a.owner:'Cá nhân'}" list="ownerList"><datalist id="ownerList">${[...new Set(DB.accounts.map(x=>x.owner))].map(o=>`<option>${o}</option>`).join('')}</datalist></div>
+    <div class="field"><label>Rổ (mô hình phân bổ)</label><select id="acRos">${
+      [['','— Không xếp rổ —'],['Rổ 1','Rổ 1 · Thu nhập cố định'],['Rổ 2','Rổ 2 · Kim loại quý'],['Rổ 3','Rổ 3 · Cổ phiếu phòng thủ'],['Rổ 4','Rổ 4 · Tiền mặt/Ngoại tệ'],['Rổ 5','Rổ 5 · Bảo hiểm'],['Rổ 0','Rổ 0 · Tín dụng (nợ)']]
+        .map(([v,l])=>`<option value="${v}" ${a&&rosKey(a)===v?'selected':''}>${l}</option>`).join('')
+    }</select></div>
     <div class="field"><label>Giá trị (₫) — nợ / dư nợ thẻ nhập số âm</label><input id="acVal" type="text" inputmode="numeric" value="${a?VND.format(a.value):''}" oninput="this.value=this.value.replace(/[^\\d-]/g,'')?VND.format(parseNum(this.value)):''"></div>
     <div class="divlabel" style="margin:6px 0">Thẻ tín dụng (tùy chọn — dùng cho TK Tín dụng)</div>
     <div class="field"><label>Hạn mức thẻ (₫)</label><input id="acHanmuc" type="text" inputmode="numeric" value="${a&&a.hanmuc?VND.format(a.hanmuc):''}" oninput="this.value=this.value.replace(/[^\\d]/g,'')?VND.format(parseNum(this.value)):''" placeholder="VD: 50.000.000"><div class="mini">Đã dùng = dư nợ (giá trị âm ở trên) · Khả dụng = hạn mức − đã dùng.</div></div>
@@ -1741,7 +1756,8 @@ window.saveAcct=id=>{
   const obj={cls:document.getElementById('acCls').value,name:g('acName')||'(chưa đặt tên)',
     owner:g('acOwner')||'Cá nhân',value:parseNum(document.getElementById('acVal').value),
     soTK:g('acSoTK'),kyhan:g('acKyhan'),laisuat:g('acLai'),daohan:g('acDaohan'),
-    hanmuc:parseNum(document.getElementById('acHanmuc').value)};
+    hanmuc:parseNum(document.getElementById('acHanmuc').value),
+    ros:document.getElementById('acRos').value};
   if(id){ const a=DB.accounts.find(x=>x.id===id); Object.assign(a,obj); }
   else DB.accounts.push({id:uid(),...obj});
   save(); closeModal(); renderAll();
