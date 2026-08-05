@@ -474,7 +474,7 @@ function recordSnapshot(){
   }
   DB.snapshots.push({d,v:t,g,o}); DB.snapshots.sort((a,b)=>a.d.localeCompare(b.d)); return true;
 }
-function save(){ store.set(KEY, JSON.stringify(DB)); cloudSchedulePush(); }
+function save(){ store.set(KEY, JSON.stringify(DB)); store.set(KEY+'_dirty','1'); cloudSchedulePush(); }
 
 /* ================= CLOUD SYNC (Supabase) ================= */
 const CLOUD={ sb:null, user:null, timer:null, status:'local' };
@@ -503,7 +503,14 @@ async function cloudPull(){
     CLOUD.status='syncing'; updateSyncBadge();
     const {data,error}=await CLOUD.sb.from('app_data').select('data').eq('user_id',CLOUD.user.id).maybeSingle();
     if(error) throw error;
-    if(data&&data.data){ DB=data.data; const bf=autoBackfill(); const fo=autoFixOwners(); const rn=autoRestoreNotes(); const cn=autoCleanNames(); store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); if(bf||fo||rn||cn) cloudSchedulePush(); }
+    if(data&&data.data){
+      const dirty=store.get(KEY+'_dirty')==='1';
+      if(dirty){ // Local có thay đổi chưa kịp đẩy -> giữ local, đẩy lên, không để cloud cũ ghi đè
+        bindFI(); renderAll(); cloudSchedulePush();
+      } else {
+        DB=data.data; const bf=autoBackfill(); const fo=autoFixOwners(); const rn=autoRestoreNotes(); const cn=autoCleanNames(); store.set(KEY,JSON.stringify(DB)); bindFI(); renderAll(); if(bf||fo||rn||cn) cloudSchedulePush();
+      }
+    }
     else { await cloudPush(true); }   // first time: đẩy dữ liệu local lên
     CLOUD.status='synced';
   }catch(e){ CLOUD.status='error'; }
@@ -514,12 +521,18 @@ function cloudSchedulePush(){
   clearTimeout(CLOUD.timer);
   CLOUD.timer=setTimeout(()=>cloudPush(),900);   // gộp nhiều thay đổi, đẩy 1 lần
 }
+/* Đẩy ngay khi rời/ẩn trang để không mất thay đổi vừa nhập (tránh reload nuốt dữ liệu) */
+function cloudFlush(){ if(!cloudReady())return; clearTimeout(CLOUD.timer); cloudPush(true); }
+window.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') cloudFlush(); });
+window.addEventListener('pagehide',cloudFlush);
+window.addEventListener('beforeunload',cloudFlush);
 async function cloudPush(silent){
   if(!cloudReady()) return;
   try{
     if(!silent){ CLOUD.status='syncing'; updateSyncBadge(); }
     const {error}=await CLOUD.sb.from('app_data').upsert({user_id:CLOUD.user.id,data:DB,updated_at:new Date().toISOString()});
     if(error) throw error;
+    store.set(KEY+'_dirty','');   // đã đẩy xong -> hết thay đổi chờ
     CLOUD.status='synced';
   }catch(e){ CLOUD.status='error'; }
   updateSyncBadge();
@@ -1210,13 +1223,17 @@ window.delOwner=(id)=>{ if(confirm('Xóa quỹ/chủ sở hữu này khỏi sổ
 /* Một dòng tài khoản (dùng chung cho cả 2 kiểu gom nhóm) */
 function accRow(a){
   let creditHtml='';
-  if(a.cls==='Tín dụng' && a.hanmuc>0){
-    const used=Math.max(0,-a.value);        // dư nợ đang nợ
-    const avail=a.hanmuc-used;
-    const pct=Math.min(100, used/a.hanmuc*100);
-    const col= pct>=90?'var(--red)':pct>=70?'#f2b84b':'var(--green)';
-    creditHtml=`<div class="mini" style="margin-top:5px">Hạn mức <b>${fmt(a.hanmuc)}</b> · đã dùng <b style="color:${col}">${fmt(used)}</b> · khả dụng <b style="color:var(--green)">${fmt(avail)}</b> <span style="color:var(--muted)">(${pct.toFixed(0)}%)</span></div>
-      <div class="bar" style="margin-top:3px;max-width:240px"><span style="width:${pct}%;background:${col}"></span></div>`;
+  if(a.cls==='Tín dụng'){
+    if(a.hanmuc>0){
+      const used=Math.max(0,-a.value);        // dư nợ đang nợ
+      const avail=a.hanmuc-used;
+      const pct=Math.min(100, used/a.hanmuc*100);
+      const col= pct>=90?'var(--red)':pct>=70?'#f2b84b':'var(--green)';
+      creditHtml=`<div class="mini" style="margin-top:5px">Hạn mức <b>${fmt(a.hanmuc)}</b> · đã dùng <b style="color:${col}">${fmt(used)}</b> · khả dụng <b style="color:var(--green)">${fmt(avail)}</b> <span style="color:var(--muted)">(${pct.toFixed(0)}%)</span></div>
+        <div class="bar" style="margin-top:3px;max-width:240px"><span style="width:${pct}%;background:${col}"></span></div>`;
+    } else {
+      creditHtml=`<div class="mini" style="margin-top:5px;color:var(--amber);cursor:pointer" onclick="event.stopPropagation();editAcct('${a.id}')">＋ Chưa đặt hạn mức — bấm để nhập hạn mức thẻ</div>`;
+    }
   }
   return `<tr>
     <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.cls} · ${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div>${creditHtml}</td>
