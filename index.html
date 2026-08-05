@@ -156,9 +156,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <!-- ============ TRANSACTIONS ============ -->
 <section class="view" id="v-tx">
   <div class="grid g3" style="margin-top:16px">
-    <div class="card"><h3>Thu (kỳ đang xem)</h3><div class="stat sm" style="color:var(--green)" id="txThu"></div></div>
-    <div class="card"><h3>Chi (kỳ đang xem)</h3><div class="stat sm" style="color:var(--red)" id="txChi"></div></div>
-    <div class="card"><h3>Chênh lệch</h3><div class="stat sm" id="txNet"></div></div>
+    <div class="card" style="cursor:pointer" onclick="showTxByKind('thu')"><h3>Thu (kỳ đang xem) ›</h3><div class="stat sm" style="color:var(--green)" id="txThu"></div></div>
+    <div class="card" style="cursor:pointer" onclick="showTxByKind('chi')"><h3>Chi (kỳ đang xem) ›</h3><div class="stat sm" style="color:var(--red)" id="txChi"></div></div>
+    <div class="card" style="cursor:pointer" onclick="showTxByKind('net')"><h3>Chênh lệch ›</h3><div class="stat sm" id="txNet"></div></div>
   </div>
   <div class="card" style="margin-top:14px">
     <div class="toolbar">
@@ -204,7 +204,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
       <span class="mini">Nhóm theo:</span>
       <button id="gbInst" class="btn sm" onclick="setAcctGroup('inst')">Ngân hàng / Công ty</button>
       <button id="gbCls" class="btn sm ghost" onclick="setAcctGroup('cls')">Loại tài sản</button>
-      <button class="btn sm ghost" onclick="toggleAllInst()" id="gbExpand" style="margin-left:auto">Mở/Thu tất cả</button>
+      <button class="btn sm ghost" onclick="toggleAllInst()" id="gbExpand">Mở/Thu tất cả</button>
+      <span style="margin-left:auto"></span>
+      <button class="btn sm ghost" onclick="exportAccountsXLSX()">⬇ Excel</button>
+      <button class="btn sm ghost" onclick="printAccounts()">🖨 In / PDF</button>
     </div>
     <div id="acctList"></div>
   </div>
@@ -218,6 +221,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
     <h3>So với khung phân bổ mục tiêu (mô hình Rổ)</h3>
     <div id="targetAlloc"></div>
     <div class="note" style="margin-top:10px">Gộp theo nhãn Rổ của từng tài khoản (Ngoại tệ + Tiền mặt + TK thanh toán đều thuộc Rổ 4). Tỷ lệ % tính trên tổng Rổ 1–4 (danh mục đầu tư cốt lõi). <b>Bảo hiểm (Rổ 5)</b> và <b>Tín dụng (Rổ 0)</b> để ngoài khung 100% vì là lớp bảo vệ/nợ, không nằm trong tỷ trọng đầu tư.</div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <div class="toolbar"><h3 style="margin:0;flex:1">Sổ Sở hữu — số dư từng quỹ</h3>
+      <button class="btn sm ghost" onclick="ownerForm(null)">+ Thêm quỹ / chủ sở hữu</button></div>
+    <div id="ownerFundList"></div>
+    <div class="mini" style="margin-top:8px">Đây là số dư tài sản mỗi quỹ / người đang nắm (nguồn cho biểu đồ "Cơ cấu theo chủ sở hữu" và các đường theo nhóm/quỹ). Bấm ✎ để sửa số dư, ✕ để xóa.</div>
   </div>
 </section>
 
@@ -422,6 +431,21 @@ const OWN_GROUPS=['Cá nhân','Bệnh viện','Người thân','Khác'];
 const OWN_COLOR={'Cá nhân':'#4f9cf9','Bệnh viện':'#f0665f','Người thân':'#37c2a8','Khác':'#8fa3b5'};
 function ownersByGroup(){ const m={}; (DB.owners||[]).forEach(o=>m[o.group]=(m[o.group]||0)+o.value); return m; }
 function ownersTotal(){ return (DB.owners||[]).reduce((s,o)=>s+o.value,0); }
+/* Tác động của một giao dịch lên tài sản ròng của chủ sở hữu (Thu +, chi sinh hoạt −, mua tài sản/chuyển = 0) */
+function ownerNetEffect(t){
+  const amt=parseNum(t.amount);
+  if(t.type==='Thu') return amt;
+  if(t.type==='Chi' && (t.grp==='SH'||!t.grp)) return -amt;
+  return 0;
+}
+/* Cộng/trừ số dư quỹ trong sổ Sở hữu; tạo mới nếu chưa có */
+function applyOwnerDelta(owner, delta){
+  if(!owner||!delta) return;
+  if(!DB.owners) DB.owners=[];
+  let o=DB.owners.find(x=>x.name===owner);
+  if(!o){ o={id:uid(),group:ownerGroupOf(owner)||'Khác',name:owner,value:0}; DB.owners.push(o); }
+  o.value+=delta;
+}
 
 /* ================= STATE ================= */
 let DB;
@@ -436,6 +460,7 @@ function load(){
   if(!DB.owners) DB.owners=structuredClone(SEED.owners);
   if(!DB.prices) DB.prices=structuredClone(SEED.prices);
   if(!DB.snapshots) DB.snapshots=structuredClone(SEED.snapshots);
+  if(!DB.ownerGroups) DB.ownerGroups={};   // nhóm cho các chủ sở hữu tự thêm
 }
 /* Ghi 1 mốc net worth cho tháng hiện tại (cập nhật nếu đã có) */
 function recordSnapshot(){
@@ -928,12 +953,16 @@ function fillCatFilter(){
     } else { sub.style.display='none'; sub.value=''; sub.innerHTML=''; }
   }
 }
-function ownerGroupOf(owner){ return (typeof OWNER_GROUP!=='undefined'&&OWNER_GROUP[owner])||''; }
+function ownerGroupOf(owner){
+  if(DB&&DB.ownerGroups&&DB.ownerGroups[owner]) return DB.ownerGroups[owner];
+  return (typeof OWNER_GROUP!=='undefined'&&OWNER_GROUP[owner])||'';
+}
 /* Toàn bộ danh mục chủ sở hữu (gồm cả các quỹ trong sheet SoHữu chưa phát sinh giao dịch) */
 function allOwners(){
   const s=new Set();
   if(typeof OWNER_MAP!=='undefined') Object.values(OWNER_MAP).forEach(v=>s.add(v));
   if(typeof OWNER_GROUP!=='undefined') Object.keys(OWNER_GROUP).forEach(v=>s.add(v));
+  if(DB&&DB.ownerGroups) Object.keys(DB.ownerGroups).forEach(v=>s.add(v));
   (DB.accounts||[]).forEach(a=>a.owner&&s.add(a.owner));
   (DB.transactions||[]).forEach(t=>t.owner&&s.add(t.owner));
   return [...s].sort((a,b)=>a.localeCompare(b,'vi'));
@@ -950,6 +979,15 @@ function currentTxList(){
   return DB.transactions.filter(t=>(!mo||monthOf(t.date)===mo)&&(!ty||t.type===ty)&&(!ca||t.category===ca)&&(!gr||(t.grp||'SH')===gr)&&(!sr||t.source===sr||t.dest===sr)&&owMatch(t)&&(!sub||t.owner===sub))
     .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
 }
+window.showTxByKind=(kind)=>{
+  const base=currentTxList();
+  let list, title;
+  if(kind==='thu'){ list=base.filter(t=>t.type==='Thu'); title='Thu (kỳ đang xem)'; }
+  else if(kind==='chi'){ list=base.filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)); title='Chi sinh hoạt (kỳ đang xem)'; }
+  else { list=base.filter(t=>t.type==='Thu'||(t.type==='Chi'&&(t.grp==='SH'||!t.grp))); title='Thu & Chi sinh hoạt (kỳ đang xem)'; }
+  if(!list.length){ alert('Không có giao dịch khớp bộ lọc hiện tại.'); return; }
+  showTxList(title, list);
+};
 function renderTx(){
   buildMonthFilter(); fillCatFilter();
   const list=currentTxList();
@@ -985,7 +1023,7 @@ function renderTx(){
     <div class="bar"><span style="width:${v/tot*100}%;background:${['#f0665f','#f2b84b','#4f9cf9','#a887f4','#37c2a8','#e0e6ed'][i%6]}"></span></div></div>`).join('')
     : '<div class="empty">Chưa có khoản chi trong kỳ này.</div>';
 }
-window.delTx=id=>{ DB.transactions=DB.transactions.filter(t=>t.id!==id); save(); renderAll(); };
+window.delTx=id=>{ const t=DB.transactions.find(x=>x.id===id); if(t&&t.m===1){ const eff=ownerNetEffect(t); if(eff) applyOwnerDelta(t.owner,-eff); } DB.transactions=DB.transactions.filter(x=>x.id!==id); save(); renderAll(); };
 window.clearTxFilters=()=>{ ['fType','fCat','fGrp','fSrc','fOwner','fSubOwner'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';}); const m=document.getElementById('fMonth'); if(m)m.value=''; renderTx(); };
 window.txShowCat=(cat)=>{ const l=currentTxList().filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)&&(t.category||'Khác')===cat); const mo=document.getElementById('fMonth').value; showTxList('Chi: '+cat+(mo?' · '+mo:''), l); };
 /* Modal liệt kê danh sách giao dịch (dùng cho drill-down Báo cáo) */
@@ -1055,9 +1093,12 @@ window.saveEditTx=id=>{
   if(!amt){ alert('Nhập số tiền.'); return; }
   const srcId=document.getElementById('etSource').value;
   const srcAcc=srcId?DB.accounts.find(a=>a.id===srcId):null;
+  const wasManual=t.m===1;
+  const oldEff=wasManual?ownerNetEffect(t):0, oldOwner=t.owner;   // tác động cũ trước khi sửa
   t.type=window._etType; t.date=document.getElementById('etDate').value; t.amount=amt;
   let ecv=document.getElementById('etCat').value; if(ecv==='__newcat__')ecv=''; t.category=ecv; t.source=srcAcc?srcAcc.name:'';
   let eov=document.getElementById('etOwner').value; if(eov==='__new__')eov=''; t.owner=eov.trim(); t.note=document.getElementById('etNote').value;
+  if(wasManual){ if(oldEff) applyOwnerDelta(oldOwner,-oldEff); const ne=ownerNetEffect(t); if(ne) applyOwnerDelta(t.owner,ne); }
   save(); closeModal(); renderAll();
 };
 
@@ -1121,11 +1162,64 @@ function renderAssets(){
   Object.keys(ROS_OTHER).forEach(k=>{ if(rsum[k]!==undefined){
     taHtml+=`<div class="row" style="justify-content:space-between;margin:8px 0;color:var(--muted);cursor:pointer" onclick="showRosDetail('${k}')"><span>${ROS_OTHER[k]} <span style="color:var(--accent2)">›</span></span><span class="mini">${fmt(rsum[k])} · ngoài khung 100%</span></div>`; }});
   ta.innerHTML=taHtml;
+  renderOwnerFunds();
 }
+/* ===== Sổ Sở hữu: tạo/sửa số dư từng quỹ ===== */
+function renderOwnerFunds(){
+  const box=document.getElementById('ownerFundList'); if(!box) return;
+  const list=DB.owners||[];
+  if(!list.length){ box.innerHTML='<div class="mini">Chưa có quỹ/chủ sở hữu nào. Bấm "+ Thêm" để tạo.</div>'; return; }
+  const byG={}; list.forEach((o,i)=>{ (byG[o.group||'Khác']=byG[o.group||'Khác']||[]).push(o); });
+  const order=OWN_GROUPS.filter(g=>byG[g]).concat(Object.keys(byG).filter(g=>!OWN_GROUPS.includes(g)));
+  let html='';
+  order.forEach(g=>{
+    const items=byG[g].slice().sort((a,b)=>b.value-a.value);
+    const sub=items.reduce((s,o)=>s+o.value,0);
+    const col=(typeof OWN_COLOR!=='undefined'&&OWN_COLOR[g])||'#8fa3b5';
+    html+=`<div class="divlabel" style="display:flex;justify-content:space-between;border-left:3px solid ${col};padding-left:8px"><span><b style="color:${col}">${g}</b></span><b class="num" style="color:${sub<0?'var(--red)':col}">${fmt(sub)}</b></div>
+      <table><tbody>`+items.map(o=>`<tr>
+        <td>${o.name}</td>
+        <td class="num" style="color:${o.value<0?'var(--red)':'var(--txt)'}">${fmt(o.value)}</td>
+        <td class="num"><button class="btn sm ghost" onclick="ownerForm('${o.id}')">✎</button>
+        <button class="btn sm ghost" onclick="delOwner('${o.id}')">✕</button></td></tr>`).join('')+`</tbody></table>`;
+  });
+  html+=`<div class="row" style="justify-content:space-between;margin-top:10px;font-size:15px"><b>Tổng sổ Sở hữu</b><b style="color:var(--accent)">${fmt(ownersTotal())}</b></div>`;
+  box.innerHTML=html;
+}
+window.ownerForm=(id)=>{
+  const o=id?(DB.owners||[]).find(x=>x.id===id):null; const isEdit=!!o;
+  openModal(`<button class="close" onclick="closeModal()">×</button><h2>${isEdit?'Sửa':'Thêm'} quỹ / chủ sở hữu</h2>
+    <div class="field"><label>Tên quỹ / chủ sở hữu</label><input id="ofName" value="${o?o.name.replace(/"/g,'&quot;'):''}" placeholder="VD: Quỹ NCKH - đề tài"></div>
+    <div class="field"><label>Nhóm</label><select id="ofGroup">${OWN_GROUPS.map(g=>`<option ${o&&o.group===g?'selected':(!o&&g==='Cá nhân'?'selected':'')}>${g}</option>`).join('')}</select></div>
+    <div class="field"><label>Số dư (₫) — nợ nhập số âm</label><input id="ofVal" type="text" inputmode="numeric" value="${o?VND.format(o.value):''}" oninput="this.value=this.value.replace(/[^\\d-]/g,'')?VND.format(parseNum(this.value)):''" placeholder="VD: 50.000.000"></div>
+    <button class="btn" style="width:100%" onclick="saveOwner('${id||''}')">Lưu</button>
+    <p class="mini" style="margin-top:8px">Số dư này dùng cho biểu đồ "Cơ cấu theo chủ sở hữu" và các đường theo nhóm/từng quỹ ở màn Tổng quan.</p>`);
+};
+window.saveOwner=(id)=>{
+  const name=document.getElementById('ofName').value.trim();
+  if(!name){ alert('Nhập tên quỹ/chủ sở hữu.'); return; }
+  const group=document.getElementById('ofGroup').value;
+  const value=parseNum(document.getElementById('ofVal').value);
+  if(!DB.owners) DB.owners=[];
+  if(id){ const o=DB.owners.find(x=>x.id===id); if(o){ o.name=name; o.group=group; o.value=value; } }
+  else DB.owners.push({id:uid(),group,name,value});
+  if(!DB.ownerGroups) DB.ownerGroups={}; DB.ownerGroups[name]=group; // nhớ nhóm để giao dịch cùng tên xếp đúng
+  save(); closeModal(); renderAll();
+};
+window.delOwner=(id)=>{ if(confirm('Xóa quỹ/chủ sở hữu này khỏi sổ Sở hữu?')){ DB.owners=(DB.owners||[]).filter(o=>o.id!==id); save(); renderAll(); } };
 /* Một dòng tài khoản (dùng chung cho cả 2 kiểu gom nhóm) */
 function accRow(a){
+  let creditHtml='';
+  if(a.cls==='Tín dụng' && a.hanmuc>0){
+    const used=Math.max(0,-a.value);        // dư nợ đang nợ
+    const avail=a.hanmuc-used;
+    const pct=Math.min(100, used/a.hanmuc*100);
+    const col= pct>=90?'var(--red)':pct>=70?'#f2b84b':'var(--green)';
+    creditHtml=`<div class="mini" style="margin-top:5px">Hạn mức <b>${fmt(a.hanmuc)}</b> · đã dùng <b style="color:${col}">${fmt(used)}</b> · khả dụng <b style="color:var(--green)">${fmt(avail)}</b> <span style="color:var(--muted)">(${pct.toFixed(0)}%)</span></div>
+      <div class="bar" style="margin-top:3px;max-width:240px"><span style="width:${pct}%;background:${col}"></span></div>`;
+  }
   return `<tr>
-    <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.cls} · ${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div></td>
+    <td style="cursor:pointer" onclick="showAccountTx('${a.name.replace(/'/g,"\\'")}')">${a.name} <span style="color:var(--accent2)">›</span><div class="mini">${a.cls} · ${a.owner}${a.daohan?' · đáo hạn '+a.daohan.split('-').reverse().join('/'):''}${a.laisuat?' · '+a.laisuat+'%/năm':''}</div>${creditHtml}</td>
     <td class="num" style="color:${a.value<0?'var(--red)':'var(--txt)'}">${fmt(a.value)}</td>
     <td class="num"><button class="btn sm ghost" onclick="event.stopPropagation();editAcct('${a.id}')">✎</button>
     <button class="btn sm ghost" onclick="event.stopPropagation();delAcct('${a.id}')">✕</button></td></tr>`;
@@ -1426,7 +1520,27 @@ function presetOwnerFromFilter(selId){
   os.value=po;
 }
 window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if(o&&[...o.options].some(x=>x.value===a.owner)) o.value=a.owner; } };
-window.ownerSelChanged=(id)=>{ const sel=document.getElementById(id); if(!sel)return; if(sel.value==='__new__'){ const name=(prompt('Nhập tên chủ sở hữu mới:')||'').trim(); if(name){ const opt=document.createElement('option'); opt.textContent=name; opt.value=name; sel.insertBefore(opt, sel.querySelector('option[value="__new__"]')); sel.value=name; } else { sel.value='Cá nhân'; } } };
+window.ownerSelChanged=(id)=>{
+  const sel=document.getElementById(id); if(!sel)return;
+  if(sel.value!=='__new__') return;
+  const name=(prompt('Nhập tên chủ sở hữu mới:')||'').trim();
+  if(!name){ sel.value='Cá nhân'; return; }
+  // Xác định nhóm cho chủ sở hữu mới (để xếp đúng vào Cá nhân/Bệnh viện/Người thân/Khác)
+  let grp=ownerGroupOf(name);
+  if(!grp){
+    const ans=(prompt('Xếp "'+name+'" vào nhóm nào? Gõ số:\n1 = Cá nhân\n2 = Bệnh viện\n3 = Người thân (quỹ/người khác nhờ giữ)\n4 = Khác','1')||'').trim();
+    grp={'1':'Cá nhân','2':'Bệnh viện','3':'Người thân','4':'Khác'}[ans]
+      || (['Cá nhân','Bệnh viện','Người thân','Khác'].includes(ans)?ans:'Khác');
+    if(!DB.ownerGroups) DB.ownerGroups={};
+    DB.ownerGroups[name]=grp; save();
+  }
+  // Thêm vào ô đang chọn nếu chưa có
+  if(![...sel.options].some(o=>o.value===name)){
+    const opt=document.createElement('option'); opt.textContent=name; opt.value=name;
+    sel.insertBefore(opt, sel.querySelector('option[value="__new__"]'));
+  }
+  sel.value=name;
+};
 window.setTxType=t=>{ window._txType=t; document.querySelectorAll('#txTypeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); fillTxCat(t);
   const dw=document.getElementById('txDestWrap'), sl=document.getElementById('txSrcLbl');
   if(dw&&sl){ if(t==='Chuyển'){ dw.style.display='block'; sl.textContent='Từ tài khoản (nguồn — giảm)'; } else { dw.style.display='none'; sl.textContent='Nguồn chi/thu (tài khoản)'; } }
@@ -1466,14 +1580,41 @@ window.saveTx=()=>{
     let ownv=document.getElementById('txOwner').value; if(ownv==='__new__')ownv='';
     let catv=document.getElementById('txCat').value; if(catv==='__newcat__')catv='';
     tx={id:uid(),date,type,category:catv,amount:amt,grp:(type==='Thu'?'Thu':'SH'),
-      owner:ownv,source:srcAcc?srcAcc.name:'',note};
+      owner:ownv,source:srcAcc?srcAcc.name:'',note,m:1};
     DB.transactions.push(tx);
     if(srcAcc&&affect){ if(type==='Chi') srcAcc.value-=amt; else if(type==='Thu') srcAcc.value+=amt; }
+    const eff=ownerNetEffect(tx); if(eff) applyOwnerDelta(tx.owner, eff);   // cộng/trừ sổ Sở hữu
   }
   save(); closeModal(); renderAll(); gsMaybePush(tx);
 };
 
 /* ===== Chuyển / Mua / Bán / Tất toán — tự động tăng-giảm số dư ===== */
+/* Tìm dòng giá (vàng/bạc/USD) khớp với một tài khoản để cập nhật số lượng khi mua/bán */
+function priceIndexForAccount(acc){
+  if(!acc||!DB.prices) return -1;
+  const n=String(acc.name||'').toLowerCase();
+  return DB.prices.findIndex(p=>p.match && n.includes(p.match));
+}
+function mvMetalAcc(){
+  const mode=window._mvMode;
+  const to=DB.accounts.find(a=>a.id===document.getElementById('mvTo').value);
+  const from=DB.accounts.find(a=>a.id===document.getElementById('mvFrom').value);
+  if(mode==='Mua') return to;
+  if(mode==='Bán'||mode==='Tất toán') return from;
+  if(priceIndexForAccount(to)>=0) return to;
+  if(priceIndexForAccount(from)>=0) return from;
+  return null;
+}
+function updateMvQtyBox(){
+  const box=document.getElementById('mvQtyBox'); if(!box) return;
+  const acc=mvMetalAcc(); const pi=priceIndexForAccount(acc);
+  if(acc && pi>=0){
+    const p=DB.prices[pi];
+    box.style.display='block';
+    document.getElementById('mvQtyLbl').textContent='Số lượng ('+p.unit+') mua/bán';
+    document.getElementById('mvQtyHint').textContent='Đang có '+p.qty+' '+p.unit+' · giá vốn '+VND.format(p.cost)+'/'+p.unit+' · sẽ tự cập nhật số lượng cho "'+p.key+'"';
+  } else { box.style.display='none'; const q=document.getElementById('mvQty'); if(q)q.value=''; }
+}
 window.transferModal=()=>{
   const opts=DB.accounts.filter(a=>a.value!==0||true).sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} (${a.cls}) · ${fmtShort(a.value)}</option>`).join('');
   openModal(`<button class="close" onclick="closeModal()">×</button><h2>Chuyển / Mua · Bán tài sản</h2>
@@ -1490,12 +1631,13 @@ window.transferModal=()=>{
       <div class="field" style="margin:0"><label>Lớp tài sản</label><select id="mvNewCls">${CLS_ORDER.map(c=>`<option ${c==='Tiết kiệm'?'selected':''}>${c}</option>`).join('')}</select></div>
     </div>
     <div class="field"><label id="mvAmtLbl">Số tiền (₫)</label><input id="mvAmt" type="text" inputmode="numeric" oninput="fmtInput(this)"></div>
+    <div class="field" id="mvQtyBox" style="display:none"><label id="mvQtyLbl">Số lượng</label><input id="mvQty" type="text" inputmode="decimal" placeholder="VD: 2" oninput="this.value=this.value.replace(/[^\\d.,]/g,'')"><div class="mini" id="mvQtyHint"></div></div>
     <div class="field" id="mvGainBox" style="display:none"><label id="mvGainLbl">Lãi (+) / Lỗ (−) — tùy chọn (₫)</label><input id="mvGain" type="text" inputmode="numeric" placeholder="0" oninput="this.value=this.value.replace(/[^\\d-]/g,'')?VND.format(parseNum(this.value)):''"></div>
     <div class="field"><label>Ghi chú</label><input id="mvNote"></div>
     <button class="btn" style="width:100%" onclick="saveTransfer()">Lưu giao dịch</button>`);
   window._mvMode='Chuyển'; setMv('Chuyển');
-  document.getElementById('mvTo').onchange=e=>{ document.getElementById('mvNewBox').style.display=e.target.value==='__new__'?'block':'none'; };
-  document.getElementById('mvFrom').onchange=()=>{ if(window._mvMode==='Tất toán'){ const a=DB.accounts.find(x=>x.id===document.getElementById('mvFrom').value); if(a)document.getElementById('mvAmt').value=VND.format(a.value); } };
+  document.getElementById('mvTo').onchange=e=>{ document.getElementById('mvNewBox').style.display=e.target.value==='__new__'?'block':'none'; updateMvQtyBox(); };
+  document.getElementById('mvFrom').onchange=()=>{ if(window._mvMode==='Tất toán'){ const a=DB.accounts.find(x=>x.id===document.getElementById('mvFrom').value); if(a)document.getElementById('mvAmt').value=VND.format(a.value); } updateMvQtyBox(); };
 };
 window.setMv=m=>{
   window._mvMode=m;
@@ -1507,6 +1649,7 @@ window.setMv=m=>{
   else if(m==='Tất toán'){ fl.textContent='Sổ tất toán → về 0'; tl.textContent='Chuyển tiền gốc về tài khoản (tăng)'; gb.style.display='block'; gl.textContent='Lãi tất toán nhận thêm — tùy chọn';
     const a=DB.accounts.find(x=>x.id===document.getElementById('mvFrom').value); if(a)amtEl.value=VND.format(a.value); amtEl.disabled=true; }
   else { fl.textContent='Từ tài khoản (giảm)'; tl.textContent='Đến tài khoản (tăng)'; gb.style.display='none'; }
+  updateMvQtyBox();
 };
 window.saveTransfer=()=>{
   const mode=window._mvMode;
@@ -1523,6 +1666,18 @@ window.saveTransfer=()=>{
   const gain=document.getElementById('mvGain')?parseNum(document.getElementById('mvGain').value):0;
   if(mode==='Tất toán') from.value=0; else from.value-=amt;
   to.value+=amt;
+  // Cập nhật số lượng vàng/bạc/USD + giá vốn bình quân nếu có nhập số lượng
+  const qEl=document.getElementById('mvQty');
+  const qty=qEl? (parseFloat(String(qEl.value).replace(/\./g,'').replace(',','.'))||0) : 0;
+  if(qty>0){
+    const metalAcc = (mode==='Mua')?to : (mode==='Bán'||mode==='Tất toán')?from : (priceIndexForAccount(to)>=0?to:(priceIndexForAccount(from)>=0?from:null));
+    const pi=priceIndexForAccount(metalAcc);
+    if(pi>=0){
+      const p=DB.prices[pi]; const isInto=(metalAcc===to);
+      if(isInto){ const nq=p.qty+qty; p.cost= nq>0?Math.round((p.qty*p.cost+amt)/nq):p.cost; p.qty=+nq.toFixed(4); }
+      else { p.qty=+Math.max(0,p.qty-qty).toFixed(4); }
+    }
+  }
   const date=document.getElementById('mvDate').value, note=document.getElementById('mvNote').value;
   const cat={'Chuyển':'Chuyển nguồn','Mua':'Mua tài sản','Bán':'Bán tài sản','Tất toán':'Tất toán sổ'}[mode];
   const pushed=[];
@@ -1544,7 +1699,9 @@ function acctForm(a){
     <div class="field"><label>Lớp tài sản</label><select id="acCls">${CLS_ORDER.map(c=>`<option ${a&&a.cls===c?'selected':''}>${c}</option>`).join('')}</select></div>
     <div class="field"><label>Tên tài khoản</label><input id="acName" value="${a?a.name:''}" placeholder="VD: VCBS, HD bank ...123"></div>
     <div class="field"><label>Chủ sở hữu</label><input id="acOwner" value="${a?a.owner:'Cá nhân'}" list="ownerList"><datalist id="ownerList">${[...new Set(DB.accounts.map(x=>x.owner))].map(o=>`<option>${o}</option>`).join('')}</datalist></div>
-    <div class="field"><label>Giá trị (₫) — nợ nhập số âm</label><input id="acVal" type="text" inputmode="numeric" value="${a?VND.format(a.value):''}" oninput="this.value=this.value.replace(/[^\\d-]/g,'')?VND.format(parseNum(this.value)):''"></div>
+    <div class="field"><label>Giá trị (₫) — nợ / dư nợ thẻ nhập số âm</label><input id="acVal" type="text" inputmode="numeric" value="${a?VND.format(a.value):''}" oninput="this.value=this.value.replace(/[^\\d-]/g,'')?VND.format(parseNum(this.value)):''"></div>
+    <div class="divlabel" style="margin:6px 0">Thẻ tín dụng (tùy chọn — dùng cho TK Tín dụng)</div>
+    <div class="field"><label>Hạn mức thẻ (₫)</label><input id="acHanmuc" type="text" inputmode="numeric" value="${a&&a.hanmuc?VND.format(a.hanmuc):''}" oninput="this.value=this.value.replace(/[^\\d]/g,'')?VND.format(parseNum(this.value)):''" placeholder="VD: 50.000.000"><div class="mini">Đã dùng = dư nợ (giá trị âm ở trên) · Khả dụng = hạn mức − đã dùng.</div></div>
     <div class="divlabel" style="margin:6px 0">Thông tin sổ tiết kiệm (tùy chọn)</div>
     <div class="row">
       <div class="field" style="flex:1;min-width:120px"><label>Số sổ</label><input id="acSoTK" value="${a&&a.soTK?a.soTK:''}" placeholder="004704..."></div>
@@ -1560,7 +1717,8 @@ window.saveAcct=id=>{
   const g=x=>document.getElementById(x).value.trim();
   const obj={cls:document.getElementById('acCls').value,name:g('acName')||'(chưa đặt tên)',
     owner:g('acOwner')||'Cá nhân',value:parseNum(document.getElementById('acVal').value),
-    soTK:g('acSoTK'),kyhan:g('acKyhan'),laisuat:g('acLai'),daohan:g('acDaohan')};
+    soTK:g('acSoTK'),kyhan:g('acKyhan'),laisuat:g('acLai'),daohan:g('acDaohan'),
+    hanmuc:parseNum(document.getElementById('acHanmuc').value)};
   if(id){ const a=DB.accounts.find(x=>x.id===id); Object.assign(a,obj); }
   else DB.accounts.push({id:uid(),...obj});
   save(); closeModal(); renderAll();
@@ -1594,6 +1752,53 @@ function writeXLSX(rows,fname){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Giao dịch');
   XLSX.writeFile(wb,fname);
 }
+/* ===== Tải / In danh mục tài khoản (theo cách gom nhóm hiện tại) ===== */
+function accountGroups(){
+  const list=DB.accounts.filter(a=>a.value!==0);
+  const g={};
+  list.forEach(a=>{ const k=(ACCT_GB==='inst')?institutionOf(a.name):a.cls; (g[k]=g[k]||[]).push(a); });
+  const order=(ACCT_GB==='inst')
+    ? Object.keys(g).sort((x,y)=>Math.abs(g[y].reduce((s,a)=>s+a.value,0))-Math.abs(g[x].reduce((s,a)=>s+a.value,0)))
+    : CLS_ORDER.filter(c=>g[c]);
+  return order.map(k=>({label:k, color:(ACCT_GB==='inst')?instColor(k):(CLS_COLOR[k]||'#888'),
+    accts:g[k].slice().sort((a,b)=>Math.abs(b.value)-Math.abs(a.value)), sub:g[k].reduce((s,a)=>s+a.value,0)}));
+}
+window.exportAccountsXLSX=()=>{
+  if(typeof XLSX==='undefined'){ alert('Chưa tải được thư viện Excel — kiểm tra mạng rồi thử lại.'); return; }
+  const groups=accountGroups(); const rows=[]; let grand=0;
+  const col=(ACCT_GB==='inst')?'Đơn vị (NH/Công ty)':'Loại tài sản';
+  groups.forEach(gr=>{ grand+=gr.sub;
+    gr.accts.forEach(a=>rows.push({[col]:gr.label,'Tài khoản':a.name,'Loại':a.cls,'Chủ sở hữu':a.owner,'Số dư (₫)':a.value}));
+    rows.push({[col]:'▶ TỔNG '+gr.label,'Tài khoản':'','Loại':'','Chủ sở hữu':'','Số dư (₫)':gr.sub});
+  });
+  rows.push({[col]:'★ TỔNG TÀI SẢN','Tài khoản':'','Loại':'','Chủ sở hữu':'','Số dư (₫)':grand});
+  const ws=XLSX.utils.json_to_sheet(rows); ws['!cols']=[{wch:34},{wch:32},{wch:12},{wch:20},{wch:18}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Tài khoản');
+  XLSX.writeFile(wb,'danh-muc-tai-khoan-'+todayISO()+'.xlsx');
+};
+window.printAccounts=()=>{
+  const groups=accountGroups(); const grand=groups.reduce((s,gr)=>s+gr.sub,0);
+  const gtitle=(ACCT_GB==='inst')?'gom theo Ngân hàng / Công ty':'gom theo Loại tài sản';
+  let rows='';
+  groups.forEach(gr=>{
+    rows+=`<tr class="grp"><td style="border-left:5px solid ${gr.color};color:${gr.color}"><b>${gr.label}</b></td><td>${gr.accts.length} TK</td><td></td><td class="r"><b style="color:${gr.color}">${VND.format(gr.sub)} ₫</b></td></tr>`;
+    gr.accts.forEach(a=>{ rows+=`<tr><td style="padding-left:18px">${a.name}</td><td>${a.cls}</td><td>${a.owner}</td><td class="r">${VND.format(a.value)} ₫</td></tr>`; });
+  });
+  const w=window.open('','_blank'); if(!w){ alert('Trình duyệt chặn cửa sổ in. Hãy cho phép pop-up.'); return; }
+  w.document.write(`<html><head><meta charset="utf-8"><title>Danh mục tài khoản</title>
+    <style>body{font-family:Arial,sans-serif;padding:22px;color:#111}h1{font-size:18px;margin:0 0 3px}
+    .sub{color:#555;font-size:12.5px;margin-bottom:12px}table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border:1px solid #bbb;padding:5px 8px;text-align:left;vertical-align:top}th{background:#eee}
+    .r{text-align:right;white-space:nowrap}tr.grp td{background:#f4f6f8}
+    .tot{margin-top:14px;font-size:15px}@media print{.noprint{display:none}}</style></head><body>
+    <h1>DANH MỤC TÀI KHOẢN</h1>
+    <div class="sub">${gtitle} — ${groups.length} nhóm — Ngày in: ${todayISO().split('-').reverse().join('/')}</div>
+    <table><thead><tr><th>Đơn vị / Tài khoản</th><th>Loại</th><th>Chủ sở hữu</th><th class="r">Số dư</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="tot"><b>TỔNG TÀI SẢN: ${VND.format(grand)} ₫</b></div>
+    <button class="noprint" onclick="window.print()" style="margin-top:16px;padding:8px 16px">In / Lưu PDF</button>
+    </body></html>`);
+  w.document.close();
+};
 window.exportXLSX=()=>writeXLSX(txExportRows(),'giao-dich-'+todayISO()+'.xlsx');
 window.exportFilteredXLSX=()=>{
   const list=currentTxList();
@@ -1679,14 +1884,11 @@ window.wipeAll=()=>{ if(confirm('Xóa TOÀN BỘ dữ liệu? Không thể hoàn
 /* ================= RENDER ALL ================= */
 function activeView(){ const t=document.querySelector('.tab.active'); return t?t.dataset.v:'dash'; }
 function renderAll(){
-  const v=activeView();
-  if(v==='dash')renderDash();
-  else if(v==='tx')renderTx();
-  else if(v==='assets')renderAssets();
-  else if(v==='fi')renderFI();
-  else if(v==='report')renderReport();
-  else if(v==='data')renderData();
-  document.getElementById('netMini').textContent=fmtShort(assetTotal());
+  // Cập nhật TẤT CẢ các tab để mọi con số luôn khớp khi có giao dịch mới,
+  // không phải chờ bấm sang tab đó mới thấy đổi.
+  [renderDash,renderTx,renderAssets,renderFI,renderReport].forEach(fn=>{ try{ fn(); }catch(e){ console.warn('render',fn.name,e); } });
+  if(activeView()==='data'){ try{ renderData(); }catch(e){} }
+  const nm=document.getElementById('netMini'); if(nm) nm.textContent=fmtShort(assetTotal());
 }
 ['fMonth','fType','fCat','fGrp','fSrc','fOwner','fSubOwner'].forEach(id=>document.addEventListener('change',e=>{ if(e.target.id===id)renderTx(); }));
 
