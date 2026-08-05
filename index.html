@@ -563,7 +563,7 @@ window.cloudSignIn=async()=>{
   const email=document.getElementById('sbEmail').value.trim(), pw=document.getElementById('sbPw').value;
   const {error}=await CLOUD.sb.auth.signInWithPassword({email,password:pw});
   if(error){ alert('Lỗi đăng nhập: '+error.message); return; }
-  await cloudPull(); renderData(); updateSyncBadge(); applyGate();
+  await cloudPull(true); renderData(); updateSyncBadge(); applyGate();   // đăng nhập -> lấy dữ liệu đám mây làm chuẩn
 };
 window.cloudSignOut=async()=>{ if(CLOUD.sb){ await CLOUD.sb.auth.signOut(); CLOUD.user=null; CLOUD.status='configured';
   if(requireLogin()){ store.set(KEY,''); }   // xóa bản sao cục bộ để bảo mật
@@ -628,7 +628,7 @@ window.gateSignIn=async()=>{
   const {error}=await CLOUD.sb.auth.signInWithPassword({email,password:pw});
   if(error){ alert('Lỗi đăng nhập: '+error.message); return; }
   store.set('last_email',email);
-  await cloudPull(); renderData(); updateSyncBadge(); applyGate();
+  await cloudPull(true); renderData(); updateSyncBadge(); applyGate();   // đăng nhập -> lấy dữ liệu đám mây làm chuẩn
 };
 window.toggleReqLogin=(v)=>{
   store.set('require_login', v?'1':'');
