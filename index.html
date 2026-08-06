@@ -38,10 +38,16 @@ header{position:sticky;top:0;z-index:50;background:linear-gradient(180deg,#0f172
 .g4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:760px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}.g3 .full,.g4 .full{grid-column:1/-1}}
 @media(max-width:480px){.g3,.g4{grid-template-columns:1fr 1fr}}
-/* Hàng 3 số Thu/Chi/Chênh lệch: giữ 3 cột gọn trên mobile, không xuống dòng */
+/* Hàng 3 số Thu/Chi/Chênh lệch */
 .kpi{grid-template-columns:repeat(3,1fr)}
-@media(max-width:560px){.kpi{gap:8px}.kpi .card{padding:11px 9px}.kpi .card h3{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi .stat.sm{font-size:clamp(13px,3.7vw,18px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-@media(max-width:360px){.wrap{padding:0 10px 120px}.card{padding:13px}th,td{padding:8px 5px}.kpi .card{padding:9px 6px}}
+/* Trên mobile: xếp dọc, mỗi thẻ 1 dòng (nhãn trái · số đầy đủ bên phải) -> không cắt, không xuống dòng */
+@media(max-width:560px){
+  .kpi{grid-template-columns:1fr;gap:8px}
+  .kpi .card{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:11px 14px}
+  .kpi .card h3{margin:0;font-size:13px;white-space:nowrap}
+  .kpi .stat.sm{font-size:18px;white-space:nowrap}
+}
+@media(max-width:360px){.wrap{padding:0 10px 120px}.card{padding:13px}th,td{padding:8px 5px}.kpi .stat.sm{font-size:16px}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
 .card h3{font-size:14px;color:var(--muted);font-weight:500;letter-spacing:.02em}
 .stat{font-size:clamp(18px,4.6vw,30px);font-weight:700;letter-spacing:-.01em;overflow-wrap:anywhere}
@@ -70,6 +76,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
 .btn.sm{padding:7px 12px;font-size:13px}
 .btn.red{background:var(--red);color:#fff}
+.btn.addbtn{background:linear-gradient(135deg,#4f9cf9,#3b7fe0);color:#fff;font-weight:700;padding:11px 20px;box-shadow:0 3px 12px rgba(79,156,249,.4)}
+#fab{position:fixed;right:16px;bottom:18px;z-index:90;width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#4f9cf9,#3b7fe0);color:#fff;border:none;font-size:30px;line-height:1;box-shadow:0 6px 18px rgba(0,0,0,.45);cursor:pointer;display:grid;place-items:center}
+#fab:active{transform:scale(.95)}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .seg{display:flex;background:var(--panel2);border-radius:10px;padding:3px;border:1px solid var(--line)}
 .seg button{flex:1;background:transparent;border:none;color:var(--muted);padding:8px;border-radius:8px;cursor:pointer;font-weight:600}
@@ -197,8 +206,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
       <select id="fSrc" style="max-width:190px"><option value="">Tất cả nguồn</option></select>
       <select id="fOwner" style="max-width:190px"><option value="">Tất cả sở hữu</option></select>
       <select id="fSubOwner" style="max-width:220px;display:none"></select>
-      <button class="btn sm ghost" onclick="addTxModal()">+ Thêm giao dịch</button>
+    </div>
+    <div class="row" style="gap:8px;margin:12px 0 4px;flex-wrap:wrap;align-items:center">
+      <button class="btn addbtn" onclick="addTxModal()">＋ Thêm giao dịch</button>
       <button class="btn sm ghost" onclick="transferModal()">⇄ Chuyển / Mua-Bán</button>
+      <span style="margin-left:auto"></span>
       <button class="btn sm ghost" onclick="exportFilteredXLSX()">⬇ Excel (lọc)</button>
       <button class="btn sm ghost" onclick="printFiltered()">🖨 In</button>
     </div>
@@ -366,6 +378,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 <button class="fab" onclick="addTxModal()" title="Thêm giao dịch">+</button>
 
 <!-- MODAL -->
+<button id="fab" onclick="addTxModal()" title="Thêm giao dịch" aria-label="Thêm giao dịch">＋</button>
 <div class="modal" id="modal"><div class="sheet" id="sheetBody"></div></div>
 
 <!-- Màn hình khóa đăng nhập -->
