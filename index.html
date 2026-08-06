@@ -38,7 +38,10 @@ header{position:sticky;top:0;z-index:50;background:linear-gradient(180deg,#0f172
 .g4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:760px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}.g3 .full,.g4 .full{grid-column:1/-1}}
 @media(max-width:480px){.g3,.g4{grid-template-columns:1fr 1fr}}
-@media(max-width:360px){.wrap{padding:0 10px 120px}.card{padding:13px}th,td{padding:8px 5px}}
+/* Hàng 3 số Thu/Chi/Chênh lệch: giữ 3 cột gọn trên mobile, không xuống dòng */
+.kpi{grid-template-columns:repeat(3,1fr)}
+@media(max-width:560px){.kpi{gap:8px}.kpi .card{padding:11px 9px}.kpi .card h3{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi .stat.sm{font-size:clamp(13px,3.7vw,18px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+@media(max-width:360px){.wrap{padding:0 10px 120px}.card{padding:13px}th,td{padding:8px 5px}.kpi .card{padding:9px 6px}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
 .card h3{font-size:14px;color:var(--muted);font-weight:500;letter-spacing:.02em}
 .stat{font-size:clamp(18px,4.6vw,30px);font-weight:700;letter-spacing:-.01em;overflow-wrap:anywhere}
@@ -162,9 +165,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 
 <!-- ============ TRANSACTIONS ============ -->
 <section class="view" id="v-tx">
-  <div class="grid g3" style="margin-top:16px">
-    <div class="card" style="cursor:pointer" onclick="showTxByKind('thu')"><h3>Thu (kỳ đang xem) ›</h3><div class="stat sm" style="color:var(--green)" id="txThu"></div></div>
-    <div class="card" style="cursor:pointer" onclick="showTxByKind('chi')"><h3>Chi (kỳ đang xem) ›</h3><div class="stat sm" style="color:var(--red)" id="txChi"></div></div>
+  <div class="grid g3 kpi" style="margin-top:16px">
+    <div class="card" style="cursor:pointer" onclick="showTxByKind('thu')"><h3>Thu ›</h3><div class="stat sm" style="color:var(--green)" id="txThu"></div></div>
+    <div class="card" style="cursor:pointer" onclick="showTxByKind('chi')"><h3>Chi ›</h3><div class="stat sm" style="color:var(--red)" id="txChi"></div></div>
     <div class="card" style="cursor:pointer" onclick="showTxByKind('net')"><h3>Chênh lệch ›</h3><div class="stat sm" id="txNet"></div></div>
   </div>
   <div class="card" style="margin-top:14px">
