@@ -79,6 +79,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .btn.addbtn{background:linear-gradient(135deg,#4f9cf9,#3b7fe0);color:#fff;font-weight:700;padding:11px 20px;box-shadow:0 3px 12px rgba(79,156,249,.4)}
 #fab{position:fixed;right:16px;bottom:18px;z-index:90;width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#4f9cf9,#3b7fe0);color:#fff;border:none;font-size:30px;line-height:1;box-shadow:0 6px 18px rgba(0,0,0,.45);cursor:pointer;display:grid;place-items:center}
 #fab:active{transform:scale(.95)}
+.acpick{position:relative}
+.acpick-menu{position:absolute;left:0;right:0;top:100%;z-index:130;background:var(--panel2);border:1px solid var(--line);border-radius:10px;margin-top:4px;max-height:260px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.acpick-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--line)}
+.acpick-opt:last-child{border-bottom:none}
+.acpick-opt:hover{background:var(--panel)}
+.acpick-bal{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;font-size:13px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .seg{display:flex;background:var(--panel2);border-radius:10px;padding:3px;border:1px solid var(--line)}
 .seg button{flex:1;background:transparent;border:none;color:var(--muted);padding:8px;border-radius:8px;cursor:pointer;font-weight:600}
@@ -1169,7 +1175,7 @@ window.editTx=id=>{
     <div class="field" style="margin-top:12px"><label>Ngày</label><input id="etDate" type="date" value="${t.date}"></div>
     <div class="field"><label>Số tiền (₫)</label><input id="etAmt" type="text" inputmode="numeric" value="${VND.format(parseNum(t.amount))}" oninput="fmtInput(this)"></div>
     <div class="field"><label>Danh mục</label><select id="etCat" onchange="catSelChanged('etCat')"></select></div>
-    <div class="field"><label>Nguồn (tài khoản)</label><select id="etSource">${accOpts}</select></div>
+    <div class="field"><label>Nguồn (tài khoản)</label>${acctPickerHTML('etSource',{placeholder:'Gõ để tìm tài khoản…'})}</div>
     <div class="field"><label>Chủ sở hữu</label>
       <select id="etOwner" onchange="ownerSelChanged('etOwner')">
         ${(owners.includes(t.owner)||!t.owner?owners:[t.owner,...owners]).map(o=>`<option ${o===(t.owner||'Cá nhân')?'selected':''}>${o}</option>`).join('')}
@@ -1179,7 +1185,7 @@ window.editTx=id=>{
     <p class="mini" style="margin-top:8px">Sửa giao dịch chỉ đổi thông tin, không tự điều chỉnh số dư tài khoản. Nếu đổi số tiền/nguồn, hãy chỉnh số dư ở tab Tài sản nếu cần.</p>`);
   window._etType=t.type; etFillCat(t.type);
   document.getElementById('etCat').value=t.category||'';
-  const acc=DB.accounts.find(a=>a.name===t.source); if(acc)document.getElementById('etSource').value=acc.id;
+  const acc=DB.accounts.find(a=>a.name===t.source); if(acc)acpickSet('etSource',acc.id);
   etTypeUI(t.type);
 };
 function etFillCat(t){ const sel=document.getElementById('etCat');
@@ -1597,12 +1603,8 @@ window.addTxModal=()=>{
     <div class="field" style="margin-top:12px"><label>Ngày</label><input id="txDate" type="date" value="${todayISO()}"></div>
     <div class="field"><label>Số tiền (₫)</label><input id="txAmt" type="text" inputmode="numeric" placeholder="0" oninput="fmtInput(this)"></div>
     <div class="field"><label>Danh mục</label><select id="txCat" onchange="catSelChanged('txCat')"></select></div>
-    <div class="field"><label id="txSrcLbl">Nguồn chi/thu (tài khoản)</label><select id="txSource" onchange="txSrcChanged()">
-      <option value="">— Không chọn —</option>
-      ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
-    <div class="field" id="txDestWrap" style="display:none"><label>Đến tài khoản (nhận tiền)</label><select id="txDest">
-      <option value="">— Chọn —</option>
-      ${DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls)).map(a=>`<option value="${a.id}">${a.name} · ${a.cls} · ${a.owner}</option>`).join('')}</select></div>
+    <div class="field"><label id="txSrcLbl">Nguồn chi/thu (tài khoản)</label>${acctPickerHTML('txSource',{placeholder:'Gõ để tìm tài khoản nguồn…',onpick:'txSrcChanged'})}</div>
+    <div class="field" id="txDestWrap" style="display:none"><label>Đến tài khoản (nhận tiền)</label>${acctPickerHTML('txDest',{placeholder:'Gõ để tìm tài khoản đến…'})}</div>
     <label class="row mini" style="margin:-4px 0 12px;cursor:pointer"><input type="checkbox" id="txAffect" checked style="width:auto">&nbsp;Tự cập nhật số dư tài khoản</label>
     <div class="field"><label>Chủ sở hữu</label>
       <select id="txOwner" onchange="ownerSelChanged('txOwner')">
@@ -1613,7 +1615,7 @@ window.addTxModal=()=>{
   window._txType='Chi'; fillTxCat('Chi');
   // Tự điền nguồn theo bộ lọc "nguồn" đang chọn ở tab Giao dịch
   const fs=document.getElementById('fSrc'); const curSrc=fs?fs.value:'';
-  if(curSrc){ const acc=DB.accounts.find(a=>a.name===curSrc); if(acc){ const sel=document.getElementById('txSource'); if(sel){ sel.value=acc.id; txSrcChanged(); } } }
+  if(curSrc){ const acc=DB.accounts.find(a=>a.name===curSrc); if(acc){ acpickSet('txSource',acc.id); txSrcChanged(); } }
   // Tự điền chủ sở hữu theo bộ lọc sở hữu/quỹ đang chọn (ưu tiên hơn nguồn)
   presetOwnerFromFilter('txOwner');
 };
@@ -1628,6 +1630,45 @@ function presetOwnerFromFilter(selId){
   if(![...os.options].some(o=>o.value===po||o.text===po)){ const opt=document.createElement('option'); opt.textContent=po; os.insertBefore(opt, os.querySelector('option[value="__new__"]')); }
   os.value=po;
 }
+/* ===== Ô chọn tài khoản có tìm kiếm + hiện số dư ===== */
+function normVN(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\u0111/g,'d'); }
+function acctPickerHTML(hid, opts){
+  opts=opts||{};
+  const ph=opts.placeholder||'Gõ tên / ngân hàng để tìm…';
+  const none=opts.allowNone!==false;
+  return `<div class="acpick" data-hid="${hid}" data-none="${none?1:0}" data-cb="${opts.onpick||''}">
+    <input type="hidden" id="${hid}">
+    <input class="acpick-in" id="${hid}_in" autocomplete="off" placeholder="${ph}" oninput="acpickFilter('${hid}')" onfocus="acpickFilter('${hid}')">
+    <div class="acpick-menu" id="${hid}_menu" style="display:none"></div>
+  </div>`;
+}
+window.acpickFilter=(hid)=>{
+  const wrap=document.querySelector(`.acpick[data-hid="${hid}"]`); if(!wrap)return;
+  const q=document.getElementById(hid+'_in').value; const nq=normVN(q.trim());
+  const none=wrap.dataset.none==='1';
+  const list=DB.accounts.slice().sort((a,b)=>a.cls.localeCompare(b.cls))
+    .filter(a=>!nq||normVN(a.name+' '+a.cls+' '+a.owner).includes(nq));
+  let html= none?`<div class="acpick-opt" onclick="acpickPick('${hid}','')"><span class="mini">— Không chọn —</span></div>`:'';
+  html+= list.length? list.map(a=>`<div class="acpick-opt" onclick="acpickPick('${hid}','${a.id}')">
+      <div><b>${a.name}</b><div class="mini">${a.cls} · ${a.owner}</div></div>
+      <div class="acpick-bal" style="color:${a.value<0?'var(--red)':'var(--accent)'}">${fmt(a.value)}</div></div>`).join('')
+    : `<div class="acpick-opt"><span class="mini">Không tìm thấy tài khoản khớp "${q}".</span></div>`;
+  const menu=document.getElementById(hid+'_menu'); menu.innerHTML=html; menu.style.display='block';
+};
+window.acpickPick=(hid,id)=>{
+  document.getElementById(hid).value=id;
+  const a=DB.accounts.find(x=>x.id===id);
+  document.getElementById(hid+'_in').value= a? `${a.name} · ${fmt(a.value)}` : '';
+  document.getElementById(hid+'_menu').style.display='none';
+  const cb=document.querySelector(`.acpick[data-hid="${hid}"]`).dataset.cb;
+  if(cb && window[cb]) window[cb]();
+};
+function acpickSet(hid, accId){
+  const a=DB.accounts.find(x=>x.id===accId); if(!a)return;
+  const h=document.getElementById(hid); if(h)h.value=accId;
+  const inp=document.getElementById(hid+'_in'); if(inp)inp.value=`${a.name} · ${fmt(a.value)}`;
+}
+document.addEventListener('click',e=>{ if(!e.target.closest('.acpick')) document.querySelectorAll('.acpick-menu').forEach(m=>m.style.display='none'); });
 window.txSrcChanged=()=>{ const id=document.getElementById('txSource').value; const a=DB.accounts.find(x=>x.id===id); if(a){ const o=document.getElementById('txOwner'); if(o&&[...o.options].some(x=>x.value===a.owner)) o.value=a.owner; } };
 window.ownerSelChanged=(id)=>{
   const sel=document.getElementById(id); if(!sel)return;
