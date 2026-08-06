@@ -169,7 +169,19 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
   </div>
   <div class="card" style="margin-top:14px">
     <div class="toolbar">
-      <select id="fMonth" style="max-width:160px"></select>
+      <select id="fQuick" style="max-width:160px" onchange="applyQuickPeriod(this.value)">
+        <option value="">Kỳ nhanh…</option>
+        <option value="all">Toàn bộ thời gian</option>
+        <option value="thismonth">Tháng này</option>
+        <option value="lastmonth">Tháng trước</option>
+        <option value="last3">3 tháng gần đây</option>
+        <option value="last6">6 tháng gần đây</option>
+        <option value="thisyear">Năm nay</option>
+        <option value="lastyear">Năm trước</option>
+      </select>
+      <select id="fMonth" style="max-width:150px" onchange="monthPicked()"></select>
+      <span class="mini" style="align-self:center">Từ</span><input type="date" id="fFrom" style="max-width:150px" onchange="rangePicked()">
+      <span class="mini" style="align-self:center">đến</span><input type="date" id="fTo" style="max-width:150px" onchange="rangePicked()">
       <select id="fType" style="max-width:150px">
         <option value="">Tất cả loại</option>
         <option value="Thu">Thu</option><option value="Chi">Chi</option><option value="Chuyển">Chuyển nguồn</option>
@@ -178,7 +190,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
         <option value="">Tất cả nhóm</option>
         <option value="SH">Chi sinh hoạt</option><option value="TS">Mua tài sản/ĐT</option><option value="CH">Chuyển nguồn</option>
       </select>
-      <select id="fCat" style="max-width:190px"><option value="">Tất cả danh mục</option></select>
+      <button id="fCatBtn" class="btn sm ghost" style="max-width:210px" onclick="openCatFilter()">Tất cả danh mục ▾</button>
       <select id="fSrc" style="max-width:190px"><option value="">Tất cả nguồn</option></select>
       <select id="fOwner" style="max-width:190px"><option value="">Tất cả sở hữu</option></select>
       <select id="fSubOwner" style="max-width:220px;display:none"></select>
@@ -946,7 +958,7 @@ window.showMonthDetail=mo=>{
     ${ent.length?`<table><tbody>${ent.map(([c,v])=>`<tr><td>${c}</td><td class="num">${fmt(v)}</td></tr>`).join('')}</tbody></table>`:'<div class="mini">Không có khoản chi sinh hoạt trong tháng.</div>'}
     <button class="btn" style="width:100%;margin-top:14px" onclick="gotoMonth('${mo}')">Xem tất cả giao dịch tháng này →</button>`);
 };
-window.gotoMonth=mo=>{ closeModal(); document.querySelector('[data-v="tx"]').click(); setTimeout(()=>{ const s=document.getElementById('fMonth'); if(s){s.value=mo; renderTx();} },60); };
+window.gotoMonth=mo=>{ closeModal(); document.querySelector('[data-v="tx"]').click(); setTimeout(()=>{ ['fFrom','fTo','fQuick'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';}); const s=document.getElementById('fMonth'); if(s){s.value=mo; renderTx();} },60); };
 
 /* ================= TRANSACTIONS ================= */
 function buildMonthFilter(){
@@ -961,11 +973,13 @@ function buildMonthFilter(){
   sel.value=cur;
 }
 function fillCatFilter(){
-  const sel=document.getElementById('fCat');
-  const curCat=sel.value;   // giữ lựa chọn danh mục đang lọc, không để reset
-  const all=[...(DB.categories.Thu||[]),...(DB.categories.Chi||[]),...DB.transactions.map(t=>t.category).filter(Boolean)];
-  sel.innerHTML='<option value="">Tất cả danh mục</option>'+[...new Set(all)].sort((a,b)=>a.localeCompare(b,'vi')).map(c=>`<option>${c}</option>`).join('');
-  sel.value=curCat;
+  updateCatBtn();
+  // Chèn danh sách năm vào ô "Kỳ nhanh" (một lần)
+  const fq=document.getElementById('fQuick');
+  if(fq && !fq.dataset.years){
+    const years=[...new Set(DB.transactions.map(t=>t.date.slice(0,4)))].filter(Boolean).sort().reverse();
+    if(years.length){ fq.insertAdjacentHTML('beforeend','<optgroup label="Theo năm">'+years.map(y=>`<option value="${y}">Năm ${y}</option>`).join('')+'</optgroup>'); fq.dataset.years='1'; }
+  }
   const ss=document.getElementById('fSrc');
   if(ss){ const cur=ss.value;
     const srcs=[...new Set([...DB.accounts.map(a=>a.name),...DB.transactions.map(t=>t.source).filter(Boolean)])].sort();
@@ -1003,18 +1017,48 @@ function allOwners(){
   (DB.transactions||[]).forEach(t=>t.owner&&s.add(t.owner));
   return [...s].sort((a,b)=>a.localeCompare(b,'vi'));
 }
+let FCAT_SEL=new Set();   // danh mục đang lọc (rỗng = tất cả)
 function currentTxList(){
-  const mo=document.getElementById('fMonth').value;
-  const ty=document.getElementById('fType').value;
-  const ca=document.getElementById('fCat').value;
-  const gr=document.getElementById('fGrp')?document.getElementById('fGrp').value:'';
-  const sr=document.getElementById('fSrc')?document.getElementById('fSrc').value:'';
-  const ow=document.getElementById('fOwner')?document.getElementById('fOwner').value:'';
-  const sub=document.getElementById('fSubOwner')?document.getElementById('fSubOwner').value:'';
+  const g=id=>{const e=document.getElementById(id);return e?e.value:'';};
+  const mo=g('fMonth'), from=g('fFrom'), to=g('fTo');
+  const ty=g('fType'), gr=g('fGrp'), sr=g('fSrc'), ow=g('fOwner'), sub=g('fSubOwner');
   const owMatch = t => !ow ? true : (ow[0]==='@' ? ownerGroupOf(t.owner)===ow.slice(1) : t.owner===ow);
-  return DB.transactions.filter(t=>(!mo||monthOf(t.date)===mo)&&(!ty||t.type===ty)&&(!ca||t.category===ca)&&(!gr||(t.grp||'SH')===gr)&&(!sr||t.source===sr||t.dest===sr)&&owMatch(t)&&(!sub||t.owner===sub))
+  const dateOk = t => { if(from||to){ if(from&&t.date<from)return false; if(to&&t.date>to)return false; return true; } return !mo||monthOf(t.date)===mo; };
+  const catOk = t => FCAT_SEL.size===0 ? true : FCAT_SEL.has(t.category);
+  return DB.transactions.filter(t=>dateOk(t)&&(!ty||t.type===ty)&&catOk(t)&&(!gr||(t.grp||'SH')===gr)&&(!sr||t.source===sr||t.dest===sr)&&owMatch(t)&&(!sub||t.owner===sub))
     .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
 }
+/* ===== Bộ lọc thời gian: kỳ nhanh / khoảng ngày / tháng ===== */
+window.applyQuickPeriod=(v)=>{
+  const el=id=>document.getElementById(id);
+  if(el('fMonth'))el('fMonth').value='';
+  const iso=d=>{const p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());};
+  const t0=new Date(todayISO()+'T00:00:00'); const y=t0.getFullYear(), mo=t0.getMonth();
+  let from='',to='';
+  if(v==='thismonth'){ from=iso(new Date(y,mo,1)); to=iso(new Date(y,mo+1,0)); }
+  else if(v==='lastmonth'){ from=iso(new Date(y,mo-1,1)); to=iso(new Date(y,mo,0)); }
+  else if(v==='last3'){ from=iso(new Date(y,mo-2,1)); to=iso(new Date(y,mo+1,0)); }
+  else if(v==='last6'){ from=iso(new Date(y,mo-5,1)); to=iso(new Date(y,mo+1,0)); }
+  else if(v==='thisyear'){ from=y+'-01-01'; to=y+'-12-31'; }
+  else if(v==='lastyear'){ from=(y-1)+'-01-01'; to=(y-1)+'-12-31'; }
+  else if(/^\d{4}$/.test(v)){ from=v+'-01-01'; to=v+'-12-31'; }
+  if(el('fFrom'))el('fFrom').value=from; if(el('fTo'))el('fTo').value=to;
+  renderTx();
+};
+window.monthPicked=()=>{ ['fFrom','fTo','fQuick'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';}); renderTx(); };
+window.rangePicked=()=>{ ['fMonth','fQuick'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';}); renderTx(); };
+/* ===== Lọc nhiều danh mục ===== */
+function catList(){ return [...new Set([...(DB.categories.Thu||[]),...(DB.categories.Chi||[]),...DB.transactions.map(t=>t.category).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'vi')); }
+function updateCatBtn(){ const b=document.getElementById('fCatBtn'); if(!b)return; b.textContent=FCAT_SEL.size? `Danh mục: ${FCAT_SEL.size} mục ▾` : 'Tất cả danh mục ▾'; }
+window.openCatFilter=()=>{
+  const cats=catList();
+  openModal(`<button class="close" onclick="closeModal()">×</button><h2>Chọn danh mục (nhiều)</h2>
+    <div class="row" style="gap:8px;margin-bottom:8px"><button class="btn sm ghost" onclick="catFilterAll(true)">Chọn tất cả</button><button class="btn sm ghost" onclick="catFilterAll(false)">Bỏ chọn hết</button></div>
+    <div id="catFilterList" style="max-height:52vh;overflow:auto">${cats.map(c=>`<label class="row" style="gap:8px;padding:8px 0;border-bottom:1px solid var(--line);cursor:pointer;flex-wrap:nowrap"><input type="checkbox" value="${c.replace(/"/g,'&quot;')}" ${FCAT_SEL.has(c)?'checked':''} style="width:auto">${c}</label>`).join('')||'<div class="mini">Chưa có danh mục.</div>'}</div>
+    <button class="btn" style="width:100%;margin-top:12px" onclick="applyCatFilter()">Áp dụng</button>`);
+};
+window.catFilterAll=(v)=>{ document.querySelectorAll('#catFilterList input[type=checkbox]').forEach(c=>c.checked=v); };
+window.applyCatFilter=()=>{ FCAT_SEL=new Set([...document.querySelectorAll('#catFilterList input:checked')].map(c=>c.value)); closeModal(); updateCatBtn(); renderTx(); };
 window.showTxByKind=(kind)=>{
   const base=currentTxList();
   let list, title;
@@ -1064,7 +1108,7 @@ function renderTx(){
     : '<div class="empty">Chưa có khoản chi trong kỳ này.</div>';
 }
 window.delTx=id=>{ const t=DB.transactions.find(x=>x.id===id); if(t&&t.m===1){ const eff=ownerNetEffect(t); if(eff) applyOwnerDelta(t.owner,-eff); } DB.transactions=DB.transactions.filter(x=>x.id!==id); save(); renderAll(); };
-window.clearTxFilters=()=>{ ['fType','fCat','fGrp','fSrc','fOwner','fSubOwner'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';}); const m=document.getElementById('fMonth'); if(m)m.value=''; renderTx(); };
+window.clearTxFilters=()=>{ ['fType','fGrp','fSrc','fOwner','fSubOwner','fMonth','fFrom','fTo','fQuick'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';}); FCAT_SEL=new Set(); updateCatBtn(); renderTx(); };
 window.txShowCat=(cat)=>{ const l=currentTxList().filter(t=>t.type==='Chi'&&(t.grp==='SH'||!t.grp)&&(t.category||'Khác')===cat); const mo=document.getElementById('fMonth').value; showTxList('Chi: '+cat+(mo?' · '+mo:''), l); };
 /* Modal liệt kê danh sách giao dịch (dùng cho drill-down Báo cáo) */
 window.showTxList=(title,list)=>{
@@ -1861,9 +1905,11 @@ window.exportFilteredXLSX=()=>{
 };
 function filterDesc(){
   const g=id=>{const e=document.getElementById(id);return e?e.value:'';};
-  const mo=g('fMonth'),ty=g('fType'),ca=g('fCat'),sr=g('fSrc'),ow=g('fOwner'),gr=g('fGrp'),sub=g('fSubOwner');
-  const d=[]; if(mo)d.push('Tháng '+mo); if(ty)d.push(ty); if(gr)d.push({SH:'Chi sinh hoạt',TS:'Mua tài sản',CH:'Chuyển'}[gr]||gr);
-  if(ca)d.push('DM: '+ca); if(sr)d.push('Nguồn: '+sr);
+  const mo=g('fMonth'),from=g('fFrom'),to=g('fTo'),ty=g('fType'),sr=g('fSrc'),ow=g('fOwner'),gr=g('fGrp'),sub=g('fSubOwner');
+  const d=[]; const dv=s=>s.split('-').reverse().join('/');
+  if(from||to) d.push('Từ '+(from?dv(from):'đầu')+' đến '+(to?dv(to):'nay')); else if(mo) d.push('Tháng '+mo);
+  if(ty)d.push(ty); if(gr)d.push({SH:'Chi sinh hoạt',TS:'Mua tài sản',CH:'Chuyển'}[gr]||gr);
+  if(FCAT_SEL.size) d.push('DM: '+[...FCAT_SEL].join(', ')); if(sr)d.push('Nguồn: '+sr);
   if(ow)d.push(ow[0]==='@'?'Nhóm SH: '+ow.slice(1):'SH: '+ow); if(sub)d.push('Quỹ: '+sub);
   return d;
 }
@@ -1944,7 +1990,7 @@ function renderAll(){
   if(activeView()==='data'){ try{ renderData(); }catch(e){} }
   const nm=document.getElementById('netMini'); if(nm) nm.textContent=fmtShort(assetTotal());
 }
-['fMonth','fType','fCat','fGrp','fSrc','fOwner','fSubOwner'].forEach(id=>document.addEventListener('change',e=>{ if(e.target.id===id)renderTx(); }));
+['fType','fGrp','fSrc','fOwner','fSubOwner'].forEach(id=>document.addEventListener('change',e=>{ if(e.target.id===id)renderTx(); }));
 
 /* ================= INIT ================= */
 load(); const _bf0=autoBackfill(); const _fo0=autoFixOwners(); const _rn0=autoRestoreNotes(); const _cn0=autoCleanNames(); if(recordSnapshot()||_bf0||_fo0||_rn0||_cn0) save(); bindFI(); renderAll();
